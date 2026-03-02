@@ -1,0 +1,17 @@
+# Binaries
+/browsii
+/browsii.exe
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Go
+coverage.txt
+c.out
+wikipedia_auth_proof.png
+script-results/

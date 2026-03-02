@@ -1,0 +1,69 @@
+version: 2
+
+project_name: browsii
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: browsii
+    main: ./cmd/browsii
+    binary: browsii
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w -X main.Version={{.Version}}
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - QUICKSTART.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^Merge "
+  groups:
+    - title: Features
+      regexp: "^feat"
+    - title: Bug fixes
+      regexp: "^fix"
+    - title: Other
+      order: 999
+
+brews:
+  - name: browsii
+    repository:
+      owner: cdg-me
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/cdg-me/browsii"
+    description: "Browser automation CLI for LLMs and Go programs"
+    install: |
+      bin.install "browsii"
+    test: |
+      system "#{bin}/browsii", "--version"
