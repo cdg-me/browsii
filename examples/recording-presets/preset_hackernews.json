@@ -1,0 +1,26 @@
+{
+    "name": "preset_hackernews",
+    "events": [
+        {
+            "t": 0,
+            "action": "navigate",
+            "params": {
+                "url": "https://news.ycombinator.com"
+            }
+        },
+        {
+            "t": 1000,
+            "action": "scroll",
+            "params": {
+                "direction": "bottom"
+            }
+        },
+        {
+            "t": 2500,
+            "action": "scroll",
+            "params": {
+                "direction": "top"
+            }
+        }
+    ]
+}

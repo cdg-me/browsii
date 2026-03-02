@@ -1,0 +1,35 @@
+{
+    "name": "preset_wikipedia",
+    "events": [
+        {
+            "t": 0,
+            "action": "navigate",
+            "params": {
+                "url": "https://en.wikipedia.org"
+            }
+        },
+        {
+            "t": 1200,
+            "action": "type",
+            "params": {
+                "selector": "input[name=search]",
+                "text": "Go (programming language)"
+            }
+        },
+        {
+            "t": 2000,
+            "action": "press",
+            "params": {
+                "key": "Enter"
+            }
+        },
+        {
+            "t": 4000,
+            "action": "scroll",
+            "params": {
+                "direction": "down",
+                "pixels": 500
+            }
+        }
+    ]
+}
