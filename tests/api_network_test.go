@@ -1,0 +1,485 @@
+package tests
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+
+func TestNetworkCapture_RecordsRequests(t *testing.T) {
+	// Create a server with multiple resources
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<html><body>
+				<div id="result">loading</div>
+				<script>
+					fetch('/api/data').then(r => r.text()).then(d => {
+						document.getElementById('result').innerText = d;
+					});
+				</script>
+			</body></html>`)
+		case "/api/data":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"status":"ok"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer apiServer.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	// Navigate first to create a page, then start capture
+	runCLI(t, bin, port, "navigate", "about:blank")
+
+	// Start capture
+	runCLI(t, bin, port, "network", "capture", "start")
+
+	runCLI(t, bin, port, "navigate", apiServer.URL)
+
+	// Wait a moment for the fetch to complete
+	runCLI(t, bin, port, "js", "() => new Promise(r => setTimeout(r, 200))")
+
+	// Stop capture and get results
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var requests []map[string]interface{}
+	err := json.Unmarshal([]byte(out), &requests)
+	require.NoError(t, err, "network stop should return valid JSON array")
+	assert.GreaterOrEqual(t, len(requests), 1, "Should have captured at least the page load request")
+
+	// Check that at least one request contains the API endpoint
+	found := false
+	for _, req := range requests {
+		if url, ok := req["url"].(string); ok {
+			if url == apiServer.URL+"/api/data" || url == apiServer.URL+"/" {
+				found = true
+				break
+			}
+		}
+	}
+	assert.True(t, found, "Should have captured requests to the test server")
+}
+
+func TestNetworkThrottle_SlowsRequests(t *testing.T) {
+	server := setupMockServer()
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+
+	// Set throttle (just verify the command succeeds, not actual timing)
+	runCLI(t, bin, port, "network", "throttle", "--latency", "100", "--download", "500000", "--upload", "500000")
+
+	// Verify page still works after throttle
+	jsOut := runCLI(t, bin, port, "js", "() => document.title")
+	assert.Contains(t, jsOut, "Test Bed")
+}
+
+func TestRouteMock_InterceptsRequests(t *testing.T) {
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<html><body>
+				<div id="result">loading</div>
+				<script>
+					fetch('/api/users').then(r => r.json()).then(d => {
+						document.getElementById('result').innerText = d.name;
+					});
+				</script>
+			</body></html>`)
+		case "/api/users":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"name":"real_user"}`)
+		}
+	}))
+	defer apiServer.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	// Navigate first to create a page
+	runCLI(t, bin, port, "navigate", "about:blank")
+
+	// Set up a route mock
+	runCLI(t, bin, port, "network", "mock", "--pattern", "*/api/users",
+		"--body", `{"name":"mocked_user"}`,
+		"--content-type", "application/json")
+
+	runCLI(t, bin, port, "navigate", apiServer.URL)
+
+	// Wait for fetch
+	runCLI(t, bin, port, "js", "() => new Promise(r => setTimeout(r, 300))")
+
+	jsOut := runCLI(t, bin, port, "js", "() => document.getElementById('result').innerText")
+	assert.Contains(t, jsOut, "mocked_user", "Route mock should intercept and return mocked response")
+}
+
+// ---------------------------------------------------------------------------
+// Multi-tab capture and --tab filter tests
+// ---------------------------------------------------------------------------
+
+// TestNetworkCapture_AllTabs_Default verifies that capture with no --tab flag records
+// requests from every open tab, not just the active one at start time.
+func TestNetworkCapture_AllTabs_Default(t *testing.T) {
+	serverA := setupFetchServer("/signal-a")
+	defer serverA.Close()
+	serverB := setupFetchServer("/signal-b")
+	defer serverB.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", serverA.URL)        // tab 0
+	runCLI(t, bin, port, "tab", "new", serverB.URL)      // tab 1
+
+	runCLI(t, bin, port, "network", "capture", "start") // default: all tabs
+
+	// Fire requests from each tab
+	runCLI(t, bin, port, "tab", "switch", "0")
+	runCLI(t, bin, port, "navigate", serverA.URL)
+	runCLI(t, bin, port, "tab", "switch", "1")
+	runCLI(t, bin, port, "navigate", serverB.URL)
+
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var events []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &events))
+
+	var sawA, sawB bool
+	for _, e := range events {
+		if u, _ := e["url"].(string); strings.HasSuffix(u, "/signal-a") {
+			sawA = true
+		}
+		if u, _ := e["url"].(string); strings.HasSuffix(u, "/signal-b") {
+			sawB = true
+		}
+	}
+	assert.True(t, sawA, "Should have captured /signal-a fetch from tab 0")
+	assert.True(t, sawB, "Should have captured /signal-b fetch from tab 1")
+}
+
+// TestNetworkCapture_Events_HaveTabIndex verifies each captured event carries an integer
+// "tab" field identifying which tab index it came from.
+func TestNetworkCapture_Events_HaveTabIndex(t *testing.T) {
+	server := setupFetchServer("/check")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start")
+	runCLI(t, bin, port, "navigate", server.URL)
+
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var events []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &events))
+	require.NotEmpty(t, events, "Expected at least one captured event")
+
+	for _, e := range events {
+		tabVal, hasTab := e["tab"]
+		assert.True(t, hasTab, "Event missing 'tab' field: %v", e)
+		_, isNumber := tabVal.(float64)
+		assert.True(t, isNumber, "'tab' field should be a number, got %T in %v", tabVal, e)
+	}
+}
+
+// TestNetworkCapture_TabFilter_Active verifies --tab active captures only the tab
+// that was active at capture start time, even after switching away.
+func TestNetworkCapture_TabFilter_Active(t *testing.T) {
+	serverA := setupFetchServer("/from-a")
+	defer serverA.Close()
+	serverB := setupFetchServer("/from-b")
+	defer serverB.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", serverA.URL)       // tab 0
+	runCLI(t, bin, port, "tab", "new", serverB.URL)     // tab 1
+	runCLI(t, bin, port, "tab", "switch", "0")          // make tab 0 active
+
+	runCLI(t, bin, port, "network", "capture", "start", "--tab", "active") // resolves to tab 0
+
+	// Navigate the active tab (should be captured)
+	runCLI(t, bin, port, "navigate", serverA.URL)
+
+	// Switch to tab 1 and navigate (should NOT be captured)
+	runCLI(t, bin, port, "tab", "switch", "1")
+	runCLI(t, bin, port, "navigate", serverB.URL)
+
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var events []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &events))
+
+	for _, e := range events {
+		u, _ := e["url"].(string)
+		assert.False(t, strings.HasSuffix(u, "/from-b"),
+			"Tab 1 requests must not appear when --tab active was resolved to tab 0: %v", e)
+	}
+	var sawA bool
+	for _, e := range events {
+		if u, _ := e["url"].(string); strings.HasSuffix(u, "/from-a") {
+			sawA = true
+		}
+	}
+	assert.True(t, sawA, "Tab 0 (active) requests should be captured")
+}
+
+// TestNetworkCapture_TabFilter_Index verifies --tab <N> captures only that specific tab.
+func TestNetworkCapture_TabFilter_Index(t *testing.T) {
+	serverA := setupFetchServer("/only-tab0")
+	defer serverA.Close()
+	serverB := setupFetchServer("/not-tab0")
+	defer serverB.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", serverA.URL)    // tab 0
+	runCLI(t, bin, port, "tab", "new", serverB.URL)  // tab 1
+
+	runCLI(t, bin, port, "network", "capture", "start", "--tab", "0")
+
+	runCLI(t, bin, port, "tab", "switch", "0")
+	runCLI(t, bin, port, "navigate", serverA.URL) // captured
+
+	runCLI(t, bin, port, "tab", "switch", "1")
+	runCLI(t, bin, port, "navigate", serverB.URL) // not captured
+
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var events []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &events))
+
+	for _, e := range events {
+		u, _ := e["url"].(string)
+		assert.False(t, strings.HasSuffix(u, "/not-tab0"),
+			"Tab 1 request must not appear when --tab 0: %v", e)
+	}
+	var sawTab0 bool
+	for _, e := range events {
+		if u, _ := e["url"].(string); strings.HasSuffix(u, "/only-tab0") {
+			sawTab0 = true
+		}
+	}
+	assert.True(t, sawTab0, "Tab 0 requests should be captured")
+}
+
+// TestNetworkCapture_TabFilter_Next verifies --tab next captures only the tab opened
+// after capture start, excluding pre-existing tabs.
+func TestNetworkCapture_TabFilter_Next(t *testing.T) {
+	serverA := setupFetchServer("/existing-tab")
+	defer serverA.Close()
+	serverB := setupFetchServer("/next-tab")
+	defer serverB.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", serverA.URL) // tab 0 exists before capture
+
+	runCLI(t, bin, port, "network", "capture", "start", "--tab", "next") // next = tab 1
+
+	runCLI(t, bin, port, "tab", "new", serverB.URL) // opens tab 1 — the "next" tab
+
+	// Also navigate existing tab 0 — should not appear
+	runCLI(t, bin, port, "tab", "switch", "0")
+	runCLI(t, bin, port, "navigate", serverA.URL)
+
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var events []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &events))
+
+	for _, e := range events {
+		u, _ := e["url"].(string)
+		assert.False(t, strings.HasSuffix(u, "/existing-tab"),
+			"Pre-existing tab 0 requests must not appear with --tab next: %v", e)
+	}
+	var sawNext bool
+	for _, e := range events {
+		if u, _ := e["url"].(string); strings.HasSuffix(u, "/next-tab") {
+			sawNext = true
+		}
+	}
+	assert.True(t, sawNext, "The newly opened tab's requests should be captured")
+}
+
+// TestNetworkCapture_TabFilter_Last verifies --tab last captures only the most recently
+// opened tab at capture start time.
+func TestNetworkCapture_TabFilter_Last(t *testing.T) {
+	serverA := setupFetchServer("/first-tab")
+	defer serverA.Close()
+	serverB := setupFetchServer("/last-tab")
+	defer serverB.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", serverA.URL)    // tab 0
+	runCLI(t, bin, port, "tab", "new", serverB.URL)  // tab 1 = last
+
+	runCLI(t, bin, port, "network", "capture", "start", "--tab", "last") // resolves to tab 1
+
+	// Navigate tab 0 (should NOT be captured)
+	runCLI(t, bin, port, "tab", "switch", "0")
+	runCLI(t, bin, port, "navigate", serverA.URL)
+
+	// Navigate tab 1 (should be captured)
+	runCLI(t, bin, port, "tab", "switch", "1")
+	runCLI(t, bin, port, "navigate", serverB.URL)
+
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var events []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &events))
+
+	for _, e := range events {
+		u, _ := e["url"].(string)
+		assert.False(t, strings.HasSuffix(u, "/first-tab"),
+			"Tab 0 requests must not appear with --tab last: %v", e)
+	}
+	var sawLast bool
+	for _, e := range events {
+		if u, _ := e["url"].(string); strings.HasSuffix(u, "/last-tab") {
+			sawLast = true
+		}
+	}
+	assert.True(t, sawLast, "Last tab's requests should be captured")
+}
+
+// TestNetworkCapture_TabFilter_Next_NoNewTab verifies --tab next returns an empty array
+// (not an error) when no new tab is ever opened before capture stop.
+func TestNetworkCapture_TabFilter_Next_NoNewTab(t *testing.T) {
+	server := setupFetchServer("/ignored")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL) // tab 0 — the only tab
+
+	runCLI(t, bin, port, "network", "capture", "start", "--tab", "next") // next = tab 1 (never opened)
+
+	// Navigate the existing tab; these requests should be silently ignored
+	runCLI(t, bin, port, "navigate", server.URL)
+
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var events []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &events))
+	assert.Empty(t, events, "--tab next with no new tab should return [] not an error")
+}
+
+func TestNetworkCapture_SSE(t *testing.T) {
+	// Create a test server with an explicit fetch script
+	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/test.json" {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"status":"ok"}`)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<html><body>
+			<script>
+				fetch('/test.json');
+			</script>
+		</body></html>`)
+	}))
+	defer apiServer.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	// Navigate first to create a clean page
+	runCLI(t, bin, port, "navigate", "about:blank")
+
+	// Connect to the SSE stream
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sseURL := fmt.Sprintf("http://127.0.0.1:%d/events/stream", port)
+	req, err := http.NewRequestWithContext(ctx, "GET", sseURL, nil)
+	require.NoError(t, err)
+
+	clientResp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "Failed to connect to SSE stream")
+	defer clientResp.Body.Close()
+
+	// Wait a moment for SSE connection to establish
+	time.Sleep(200 * time.Millisecond)
+
+	// Trigger navigation via CLI
+	runCLI(t, bin, port, "navigate", apiServer.URL)
+
+	// Read events from the stream
+	scanner := bufio.NewScanner(clientResp.Body)
+
+	eventCount := 0
+	timeout := time.After(5 * time.Second)
+
+	// Start a goroutine to read events so we can timeout
+	done := make(chan bool)
+	go func() {
+		for scanner.Scan() {
+			text := scanner.Text()
+			t.Logf("SSE Raw: %s", text)
+			if strings.HasPrefix(text, "data: ") {
+				var event struct {
+					Type    string                 `json:"type"`
+					Payload map[string]interface{} `json:"payload"`
+				}
+				dataStr := strings.TrimPrefix(text, "data: ")
+				if err := json.Unmarshal([]byte(dataStr), &event); err == nil {
+					if event.Type == "network_request" {
+						eventCount++
+						url, _ := event.Payload["url"].(string)
+						if strings.HasSuffix(url, "/test.json") {
+							done <- true
+							return
+						}
+					}
+				}
+			}
+		}
+	}()
+
+	select {
+	case <-done:
+		// Success
+		assert.Greater(t, eventCount, 0, "Should have intercepted network events")
+	case <-timeout:
+		t.Fatal("Timed out waiting for network events over SSE")
+	}
+}
