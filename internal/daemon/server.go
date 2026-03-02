@@ -143,6 +143,12 @@ func (s *Server) Start() error {
 			l = l.UserDataDir(userDataDir)
 			log.Printf("Using persistent automation profile: %s", userDataDir)
 		}
+
+		// When using the user's browsers, allow any managed flows to happen in the background
+		l = l.Delete("disable-component-extensions-with-background-pages")
+		l = l.Delete("disable-default-apps")
+		l = l.Delete("enable-automation")
+		l = l.Delete("disable-background-networking")
 	}
 
 	// headful modes show a visible window; all others run headless.
