@@ -48,8 +48,20 @@ func startDaemon(t *testing.T, port int) (bin string, cleanup func()) {
 		}
 	}
 
-	// Wait for daemon to boot
-	time.Sleep(2 * time.Second)
+	// Poll /ping until the daemon is ready instead of sleeping a fixed duration.
+	pingURL := fmt.Sprintf("http://127.0.0.1:%d/ping", port)
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(pingURL) //nolint:noctx
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return bin, cleanup
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("daemon did not become ready within 10 seconds")
 	return bin, cleanup
 }
 
