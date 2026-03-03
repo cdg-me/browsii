@@ -91,6 +91,15 @@ type Server struct {
 	// consoleLevelFilter is a comma-separated allowlist of levels ("" = all).
 	consoleLevelFilter string
 
+	// captureOutputPath is the file path to write captured network requests on stop ("" = stdout).
+	captureOutputPath string
+
+	// consoleCaptureOutputPath is the file path to write captured console entries on stop ("" = stdout).
+	consoleCaptureOutputPath string
+
+	// consoleCaptureOutputFormat is the output format for console entries (json, ndjson, text).
+	consoleCaptureOutputFormat string
+
 	// SSE Broadcasting
 	sseClients map[chan StreamEvent]struct{}
 	sseMu      sync.RWMutex

@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
@@ -25,9 +26,10 @@ func (s *Server) registerNetworkRoutes(mux *http.ServeMux) {
 //	"<N>"       — only the tab at integer index N
 func (s *Server) handleNetworkCaptureStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Tab string `json:"tab"`
+		Tab    string `json:"tab"`
+		Output string `json:"output"`
 	}
-	// Ignore decode errors — body is optional; default is all tabs.
+	// Ignore decode errors — body is optional; default is all tabs, no output file.
 	json.NewDecoder(r.Body).Decode(&req)
 
 	// Resolve the tab alias to an integer index before acquiring the lock.
@@ -41,20 +43,23 @@ func (s *Server) handleNetworkCaptureStart(w http.ResponseWriter, r *http.Reques
 	s.capturing = true
 	s.capturedReqs = nil
 	s.captureTabFilter = tabFilter
+	s.captureOutputPath = req.Output
 	s.mu.Unlock()
 
 	// Events are captured by the hub registered in attachNetworkListener/trackPage —
 	// no additional EachEvent goroutine needed here.
-	s.recordAction("network_capture_start", map[string]interface{}{"tab": req.Tab})
+	s.recordAction("network_capture_start", map[string]interface{}{"tab": req.Tab, "output": req.Output})
 	w.WriteHeader(http.StatusOK)
 }
 
-// /network/capture/stop endpoint — stops capture and returns recorded requests
+// /network/capture/stop endpoint — stops capture, writes to file if configured, returns results.
 func (s *Server) handleNetworkCaptureStop(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.capturing = false
 	reqs := s.capturedReqs
 	s.capturedReqs = nil
+	outputPath := s.captureOutputPath
+	s.captureOutputPath = ""
 	s.mu.Unlock()
 
 	if reqs == nil {
@@ -63,6 +68,24 @@ func (s *Server) handleNetworkCaptureStop(w http.ResponseWriter, r *http.Request
 
 	s.recordAction("network_capture_stop", nil)
 	w.Header().Set("Content-Type", "application/json")
+
+	if outputPath != "" {
+		data, err := json.Marshal(reqs)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := os.WriteFile(outputPath, data, 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"path":  outputPath,
+			"count": len(reqs),
+		})
+		return
+	}
+
 	json.NewEncoder(w).Encode(reqs)
 }
 

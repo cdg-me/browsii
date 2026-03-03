@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -482,4 +484,56 @@ func TestNetworkCapture_SSE(t *testing.T) {
 	case <-timeout:
 		t.Fatal("Timed out waiting for network events over SSE")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// --output flag tests
+// ---------------------------------------------------------------------------
+
+// TestNetworkCapture_Output_WritesFile verifies that --output writes the captured
+// requests to the specified file as a valid JSON array.
+func TestNetworkCapture_Output_WritesFile(t *testing.T) {
+	server := setupFetchServer("/output-test")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	outFile := filepath.Join(t.TempDir(), "capture.json")
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start", "--output", outFile)
+	runCLI(t, bin, port, "navigate", server.URL)
+	confirm := runCLI(t, bin, port, "network", "capture", "stop")
+
+	assert.Contains(t, confirm, outFile, "confirmation message should include the output path")
+
+	raw, err := os.ReadFile(outFile)
+	require.NoError(t, err, "output file should exist after stop --output")
+
+	var requests []map[string]interface{}
+	require.NoError(t, json.Unmarshal(raw, &requests), "output file should contain a valid JSON array")
+	assert.NotEmpty(t, requests, "output file should contain at least one captured request")
+}
+
+// TestNetworkCapture_Output_SuppressesStdout verifies that when --output is used
+// the JSON array is not printed to stdout (only the confirmation message appears).
+func TestNetworkCapture_Output_SuppressesStdout(t *testing.T) {
+	server := setupFetchServer("/suppress-test")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	outFile := filepath.Join(t.TempDir(), "capture.json")
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start", "--output", outFile)
+	runCLI(t, bin, port, "navigate", server.URL)
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	// When --output was set on start, stop returns a confirmation object, not the JSON array.
+	assert.NotContains(t, out, `"url"`, "JSON should not be printed to stdout when --output is set")
 }

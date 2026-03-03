@@ -10,6 +10,7 @@ import (
 
 var (
 	captureTab       string
+	captureOutput    string // set on start, consumed on stop
 	throttleLatency  int
 	throttleDownload int
 	throttleUpload   int
@@ -38,7 +39,8 @@ func init() {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			payload := map[string]interface{}{
-				"tab": captureTab,
+				"tab":    captureTab,
+				"output": captureOutput,
 			}
 			_, err := client.SendCommand(port, "network/capture/start", payload)
 			if err != nil {
@@ -48,10 +50,11 @@ func init() {
 		},
 	}
 	captureStartCmd.Flags().StringVar(&captureTab, "tab", "", `Tab filter: "active", "next", "last", "<index>", or omit for all tabs`)
+	captureStartCmd.Flags().StringVarP(&captureOutput, "output", "o", "", "Write captured requests to this file on stop")
 
 	captureStopCmd := &cobra.Command{
 		Use:   "stop",
-		Short: "Stops capture and returns recorded requests as JSON",
+		Short: "Stops capture and prints results (or writes to file if --output was set on start)",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			resp, err := client.SendCommand(port, "network/capture/stop", nil)

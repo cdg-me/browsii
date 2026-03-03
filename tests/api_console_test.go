@@ -2,6 +2,8 @@ package tests
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -198,5 +200,138 @@ func TestConsoleCapture_LevelFilter(t *testing.T) {
 		level := e["level"].(string)
 		assert.Contains(t, []string{"error", "warn"}, level,
 			"unexpected level %q in filtered capture", level)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// --format tests
+// ---------------------------------------------------------------------------
+
+// TestConsoleCapture_Format_NDJSON verifies that --format ndjson produces one
+// valid JSON object per line with no enclosing array.
+func TestConsoleCapture_Format_NDJSON(t *testing.T) {
+	server := setupConsoleServer()
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "console", "capture", "start", "--format", "ndjson")
+	runCLI(t, bin, port, "navigate", server.URL)
+	time.Sleep(500 * time.Millisecond)
+
+	out := runCLI(t, bin, port, "console", "capture", "stop")
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	require.NotEmpty(t, lines, "expected at least one line of NDJSON output")
+	for _, line := range lines {
+		var entry map[string]interface{}
+		assert.NoError(t, json.Unmarshal([]byte(line), &entry), "each line should be valid JSON: %s", line)
+		assert.Contains(t, entry, "level", "each entry should have a level field")
+		assert.Contains(t, entry, "text", "each entry should have a text field")
+	}
+}
+
+// TestConsoleCapture_Format_Text verifies that --format text produces human-readable
+// lines matching the pattern [level] tab=N: message.
+func TestConsoleCapture_Format_Text(t *testing.T) {
+	server := setupConsoleServer()
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "console", "capture", "start", "--format", "text")
+	runCLI(t, bin, port, "navigate", server.URL)
+	time.Sleep(500 * time.Millisecond)
+
+	out := runCLI(t, bin, port, "console", "capture", "stop")
+
+	// Levels are padded to 5 chars: "log  ", "warn ", "error", "info ", "debug"
+	assert.Contains(t, out, "[error]")
+	assert.Contains(t, out, "[warn ]")
+	assert.Contains(t, out, "[log  ]")
+
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	require.NotEmpty(t, lines)
+	for _, line := range lines {
+		assert.Regexp(t, `^\[.{5}\] tab=\d+: .+$`, line, "unexpected text format line: %s", line)
+	}
+}
+
+// TestConsoleCapture_Format_Invalid verifies that an unrecognised --format value
+// causes the stop command to exit with a non-zero status and a helpful error message.
+func TestConsoleCapture_Format_Invalid(t *testing.T) {
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "console", "capture", "start", "--format", "bogus")
+	runCLI(t, bin, port, "navigate", "about:blank")
+
+	out, err := runCLIExpectFail(t, bin, port, "console", "capture", "stop")
+	assert.Error(t, err, "invalid format should cause stop to exit non-zero")
+	assert.Contains(t, out, "unknown format", "error message should name the problem")
+}
+
+// ---------------------------------------------------------------------------
+// --output flag tests
+// ---------------------------------------------------------------------------
+
+// TestConsoleCapture_Output_WritesFile verifies that --output on start writes captured
+// entries to the specified file as a valid JSON array; stop returns a confirmation.
+func TestConsoleCapture_Output_WritesFile(t *testing.T) {
+	server := setupConsoleServer()
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	outFile := filepath.Join(t.TempDir(), "console.json")
+
+	runCLI(t, bin, port, "console", "capture", "start", "--output", outFile)
+	runCLI(t, bin, port, "navigate", server.URL)
+	time.Sleep(500 * time.Millisecond)
+	confirm := runCLI(t, bin, port, "console", "capture", "stop")
+
+	assert.Contains(t, confirm, outFile, "confirmation message should include the output path")
+	assert.NotContains(t, confirm, `"level"`, "JSON entries should not be in the stop response when --output is set")
+
+	raw, err := os.ReadFile(outFile)
+	require.NoError(t, err, "output file should exist after stop")
+
+	var entries []map[string]interface{}
+	require.NoError(t, json.Unmarshal(raw, &entries), "output file should contain a valid JSON array")
+	assert.NotEmpty(t, entries, "output file should contain at least one captured entry")
+}
+
+// TestConsoleCapture_Output_WithFormat verifies that --output and --format can be
+// combined on start: the file receives NDJSON content, not a JSON array.
+func TestConsoleCapture_Output_WithFormat(t *testing.T) {
+	server := setupConsoleServer()
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	outFile := filepath.Join(t.TempDir(), "console.ndjson")
+
+	runCLI(t, bin, port, "console", "capture", "start", "--output", outFile, "--format", "ndjson")
+	runCLI(t, bin, port, "navigate", server.URL)
+	time.Sleep(500 * time.Millisecond)
+	runCLI(t, bin, port, "console", "capture", "stop")
+
+	raw, err := os.ReadFile(outFile)
+	require.NoError(t, err, "output file should exist")
+
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	require.NotEmpty(t, lines)
+	for _, line := range lines {
+		var entry map[string]interface{}
+		assert.NoError(t, json.Unmarshal([]byte(line), &entry), "each line in the output file should be valid JSON: %s", line)
 	}
 }

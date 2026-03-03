@@ -1,8 +1,11 @@
 package daemon
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/go-rod/rod/lib/proto"
 )
@@ -18,10 +21,12 @@ func (s *Server) registerConsoleRoutes(mux *http.ServeMux) {
 // Level filter: "" = all levels, or e.g. "error,warn".
 func (s *Server) handleConsoleCaptureStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Tab   string `json:"tab"`
-		Level string `json:"level"`
+		Tab    string `json:"tab"`
+		Level  string `json:"level"`
+		Output string `json:"output"`
+		Format string `json:"format"`
 	}
-	// Ignore decode errors — body is optional; defaults are all tabs, all levels.
+	// Ignore decode errors — body is optional; defaults are all tabs, all levels, no output file.
 	json.NewDecoder(r.Body).Decode(&req)
 
 	// Resolve the tab alias to an integer index.
@@ -36,18 +41,24 @@ func (s *Server) handleConsoleCaptureStart(w http.ResponseWriter, r *http.Reques
 	s.consoleCapturedEntries = nil
 	s.consoleTabFilter = tabFilter
 	s.consoleLevelFilter = req.Level
+	s.consoleCaptureOutputPath = req.Output
+	s.consoleCaptureOutputFormat = req.Format
 	s.mu.Unlock()
 
-	s.recordAction("console_capture_start", map[string]interface{}{"tab": req.Tab, "level": req.Level})
+	s.recordAction("console_capture_start", map[string]interface{}{"tab": req.Tab, "level": req.Level, "output": req.Output, "format": req.Format})
 	w.WriteHeader(http.StatusOK)
 }
 
-// /console/capture/stop endpoint — stops buffering and returns captured entries.
+// /console/capture/stop endpoint — stops buffering, writes to file if configured, returns entries.
 func (s *Server) handleConsoleCaptureStop(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.consoleCapturing = false
 	entries := s.consoleCapturedEntries
 	s.consoleCapturedEntries = nil
+	outputPath := s.consoleCaptureOutputPath
+	outputFormat := s.consoleCaptureOutputFormat
+	s.consoleCaptureOutputPath = ""
+	s.consoleCaptureOutputFormat = ""
 	s.mu.Unlock()
 
 	if entries == nil {
@@ -56,5 +67,74 @@ func (s *Server) handleConsoleCaptureStop(w http.ResponseWriter, r *http.Request
 
 	s.recordAction("console_capture_stop", nil)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(entries)
+
+	raw, err := json.Marshal(entries)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	out, err := formatConsoleEntries(raw, outputFormat)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if outputPath != "" {
+		if err := os.WriteFile(outputPath, out, 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"path":  outputPath,
+			"count": len(entries),
+		})
+		return
+	}
+
+	// No output file: send formatted data in the response.
+	if outputFormat == "" || outputFormat == "json" {
+		w.Header().Set("Content-Type", "application/json")
+	} else {
+		w.Header().Set("Content-Type", "text/plain")
+	}
+	w.Write(out) //nolint:errcheck
+}
+
+// formatConsoleEntries converts a raw JSON array of console entries into the
+// requested format: "json" (default), "ndjson", or "text".
+func formatConsoleEntries(raw []byte, format string) ([]byte, error) {
+	switch format {
+	case "", "json":
+		return raw, nil
+
+	case "ndjson":
+		var entries []json.RawMessage
+		if err := json.Unmarshal(raw, &entries); err != nil {
+			return nil, err
+		}
+		var buf bytes.Buffer
+		for _, e := range entries {
+			buf.Write(e)
+			buf.WriteByte('\n')
+		}
+		return buf.Bytes(), nil
+
+	case "text":
+		var entries []struct {
+			Level string `json:"level"`
+			Text  string `json:"text"`
+			Tab   int    `json:"tab"`
+		}
+		if err := json.Unmarshal(raw, &entries); err != nil {
+			return nil, err
+		}
+		var buf bytes.Buffer
+		for _, e := range entries {
+			fmt.Fprintf(&buf, "[%-5s] tab=%d: %s\n", e.Level, e.Tab, e.Text)
+		}
+		return buf.Bytes(), nil
+
+	default:
+		return nil, fmt.Errorf("unknown format %q: use json, ndjson, or text", format)
+	}
 }

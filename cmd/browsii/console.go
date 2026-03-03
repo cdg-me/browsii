@@ -9,8 +9,10 @@ import (
 )
 
 var (
-	consoleCaptureTab   string
-	consoleCaptureLevel string
+	consoleCaptureTab    string
+	consoleCaptureLevel  string
+	consoleCaptureOutput string // set on start, consumed on stop
+	consoleCaptureFormat string // set on start, consumed on stop
 )
 
 func init() {
@@ -30,8 +32,10 @@ func init() {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			payload := map[string]interface{}{
-				"tab":   consoleCaptureTab,
-				"level": consoleCaptureLevel,
+				"tab":    consoleCaptureTab,
+				"level":  consoleCaptureLevel,
+				"output": consoleCaptureOutput,
+				"format": consoleCaptureFormat,
 			}
 			_, err := client.SendCommand(port, "console/capture/start", payload)
 			if err != nil {
@@ -42,10 +46,12 @@ func init() {
 	}
 	captureConsoleStartCmd.Flags().StringVar(&consoleCaptureTab, "tab", "", `Tab filter: "active", "next", "last", "<index>", or omit for all tabs`)
 	captureConsoleStartCmd.Flags().StringVar(&consoleCaptureLevel, "level", "", `Level filter: comma-separated list e.g. "error,warn", or omit for all levels`)
+	captureConsoleStartCmd.Flags().StringVarP(&consoleCaptureOutput, "output", "o", "", "Write captured entries to this file on stop")
+	captureConsoleStartCmd.Flags().StringVar(&consoleCaptureFormat, "format", "json", `Output format: json, ndjson, or text`)
 
 	captureConsoleStopCmd := &cobra.Command{
 		Use:   "stop",
-		Short: "Stops capture and returns recorded console entries as JSON",
+		Short: "Stops capture and prints results (or writes to file if --output was set on start)",
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			resp, err := client.SendCommand(port, "console/capture/stop", nil)
