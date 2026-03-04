@@ -537,3 +537,317 @@ func TestNetworkCapture_Output_SuppressesStdout(t *testing.T) {
 	// When --output was set on start, stop returns a confirmation object, not the JSON array.
 	assert.NotContains(t, out, `"url"`, "JSON should not be printed to stdout when --output is set")
 }
+
+// ---------------------------------------------------------------------------
+// --include flag tests
+// ---------------------------------------------------------------------------
+
+// TestNetworkCapture_Include_BaseFields verifies that without --include only
+// the base fields (url, method, type, tab) are present — no response data.
+func TestNetworkCapture_Include_BaseFields(t *testing.T) {
+	server := setupFetchServer("/base-fields")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start") // no --include
+	runCLI(t, bin, port, "navigate", server.URL)
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var reqs []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &reqs))
+	require.NotEmpty(t, reqs)
+
+	for _, r := range reqs {
+		assert.Contains(t, r, "url")
+		assert.Contains(t, r, "method")
+		assert.Contains(t, r, "type")
+		assert.Contains(t, r, "tab")
+		// Optional fields must be absent when --include is not set
+		assert.NotContains(t, r, "requestHeaders", "requestHeaders should be absent without --include request-headers")
+		assert.NotContains(t, r, "status", "status should be absent without --include response-headers")
+	}
+}
+
+// TestNetworkCapture_Include_RequestHeaders verifies that --include request-headers
+// populates the requestHeaders field on each entry.
+func TestNetworkCapture_Include_RequestHeaders(t *testing.T) {
+	server := setupFetchServer("/req-headers")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start", "--include", "request-headers")
+	runCLI(t, bin, port, "navigate", server.URL)
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var reqs []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &reqs))
+	require.NotEmpty(t, reqs)
+
+	found := false
+	for _, r := range reqs {
+		if hdrs, ok := r["requestHeaders"].(map[string]interface{}); ok && len(hdrs) > 0 {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "at least one entry should have non-empty requestHeaders")
+}
+
+// TestNetworkCapture_Include_ResponseHeaders verifies that --include response-headers
+// populates status, statusText, responseHeaders, and mimeType.
+func TestNetworkCapture_Include_ResponseHeaders(t *testing.T) {
+	server := setupFetchServer("/resp-headers")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start", "--include", "response-headers")
+	runCLI(t, bin, port, "navigate", server.URL)
+	// Give responses time to arrive
+	runCLI(t, bin, port, "js", "() => new Promise(r => setTimeout(r, 300))")
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var reqs []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &reqs))
+	require.NotEmpty(t, reqs)
+
+	found := false
+	for _, r := range reqs {
+		if status, ok := r["status"].(float64); ok && status == 200 {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "at least one entry should have status=200")
+}
+
+// TestNetworkCapture_Include_Wildcard_Request verifies that request-* expands to
+// all request groups (headers, body, initiator, timestamp).
+func TestNetworkCapture_Include_Wildcard_Request(t *testing.T) {
+	server := setupFetchServer("/wildcard-req")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start", "--include", "request-*")
+	runCLI(t, bin, port, "navigate", server.URL)
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var reqs []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &reqs))
+	require.NotEmpty(t, reqs)
+
+	// timestamp should be present (seconds since epoch > 0)
+	foundTS := false
+	for _, r := range reqs {
+		if ts, ok := r["timestamp"].(float64); ok && ts > 0 {
+			foundTS = true
+			break
+		}
+	}
+	assert.True(t, foundTS, "request-* should include request-timestamp")
+
+	// requestHeaders should be present on at least one entry
+	foundHdrs := false
+	for _, r := range reqs {
+		if hdrs, ok := r["requestHeaders"].(map[string]interface{}); ok && len(hdrs) > 0 {
+			foundHdrs = true
+			break
+		}
+	}
+	assert.True(t, foundHdrs, "request-* should include request-headers")
+}
+
+// TestNetworkCapture_Include_CommaSeparated verifies that comma-separated values
+// within a single --include flag are handled identically to separate flags.
+func TestNetworkCapture_Include_CommaSeparated(t *testing.T) {
+	server := setupFetchServer("/comma-sep")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	// comma-separated in a single flag value
+	runCLI(t, bin, port, "network", "capture", "start", "--include", "request-headers,request-timestamp")
+	runCLI(t, bin, port, "navigate", server.URL)
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var reqs []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &reqs))
+	require.NotEmpty(t, reqs)
+
+	foundTS, foundHdrs := false, false
+	for _, r := range reqs {
+		if ts, ok := r["timestamp"].(float64); ok && ts > 0 {
+			foundTS = true
+		}
+		if hdrs, ok := r["requestHeaders"].(map[string]interface{}); ok && len(hdrs) > 0 {
+			foundHdrs = true
+		}
+	}
+	assert.True(t, foundTS, "comma-sep --include should enable request-timestamp")
+	assert.True(t, foundHdrs, "comma-sep --include should enable request-headers")
+}
+
+// ---------------------------------------------------------------------------
+// --format flag tests (network)
+// ---------------------------------------------------------------------------
+
+// TestNetworkCapture_Format_NDJSON verifies that --format ndjson produces
+// newline-delimited JSON with one object per line.
+func TestNetworkCapture_Format_NDJSON(t *testing.T) {
+	server := setupFetchServer("/ndjson-test")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start", "--format", "ndjson")
+	runCLI(t, bin, port, "navigate", server.URL)
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	require.NotEmpty(t, lines, "ndjson output should have at least one line")
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		var obj map[string]interface{}
+		assert.NoError(t, json.Unmarshal([]byte(line), &obj), "line %d should be valid JSON: %q", i, line)
+		assert.Contains(t, obj, "url", "each ndjson line should have a url field")
+	}
+}
+
+// TestNetworkCapture_Format_HAR verifies that --format har produces a valid
+// HAR 1.2 document with a "log" key containing "entries".
+func TestNetworkCapture_Format_HAR(t *testing.T) {
+	server := setupFetchServer("/har-test")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start", "--format", "har")
+	runCLI(t, bin, port, "navigate", server.URL)
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var har map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &har), "HAR output should be valid JSON")
+
+	log, ok := har["log"].(map[string]interface{})
+	require.True(t, ok, "HAR must have a 'log' object")
+	assert.Equal(t, "1.2", log["version"], "HAR version should be 1.2")
+
+	entries, ok := log["entries"].([]interface{})
+	require.True(t, ok, "HAR log must have 'entries' array")
+	assert.NotEmpty(t, entries, "HAR entries should not be empty")
+
+	// Validate first entry structure
+	entry, ok := entries[0].(map[string]interface{})
+	require.True(t, ok)
+	assert.Contains(t, entry, "startedDateTime")
+	assert.Contains(t, entry, "request")
+	assert.Contains(t, entry, "response")
+	assert.Contains(t, entry, "timings")
+
+	req, ok := entry["request"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Contains(t, req, "url")
+	assert.Contains(t, req, "method")
+}
+
+// TestNetworkCapture_Format_HAR_WithResponseHeaders verifies that combining
+// --format har with --include response-headers populates response fields.
+func TestNetworkCapture_Format_HAR_WithResponseHeaders(t *testing.T) {
+	server := setupFetchServer("/har-resp")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start",
+		"--format", "har", "--include", "response-headers")
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "js", "() => new Promise(r => setTimeout(r, 300))")
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var har map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &har))
+
+	log := har["log"].(map[string]interface{})
+	entries := log["entries"].([]interface{})
+	require.NotEmpty(t, entries)
+
+	found := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		resp := entry["response"].(map[string]interface{})
+		if status, ok := resp["status"].(float64); ok && status == 200 {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "HAR response should have status=200 when --include response-headers is set")
+}
+
+// TestNetworkCapture_Format_HAR_WrittenToFile verifies --format har with --output
+// writes a valid HAR file.
+func TestNetworkCapture_Format_HAR_WrittenToFile(t *testing.T) {
+	server := setupFetchServer("/har-file")
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	outFile := filepath.Join(t.TempDir(), "capture.har")
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start", "--format", "har", "--output", outFile)
+	runCLI(t, bin, port, "navigate", server.URL)
+	confirm := runCLI(t, bin, port, "network", "capture", "stop")
+
+	assert.Contains(t, confirm, outFile)
+
+	raw, err := os.ReadFile(outFile)
+	require.NoError(t, err)
+
+	var har map[string]interface{}
+	require.NoError(t, json.Unmarshal(raw, &har), "HAR file should be valid JSON")
+	log := har["log"].(map[string]interface{})
+	assert.Equal(t, "1.2", log["version"])
+}
+
+// TestNetworkCapture_Format_Invalid verifies that an unrecognised format returns an error.
+func TestNetworkCapture_Format_Invalid(t *testing.T) {
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", "about:blank")
+	runCLI(t, bin, port, "network", "capture", "start", "--format", "xml")
+	out, _ := runCLIExpectFail(t, bin, port, "network", "capture", "stop")
+	assert.Contains(t, out, "unknown format", "invalid format should report an error")
+}

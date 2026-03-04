@@ -10,7 +10,9 @@ import (
 
 var (
 	captureTab       string
-	captureOutput    string // set on start, consumed on stop
+	captureOutput    string   // set on start, consumed on stop
+	captureInclude   []string // set on start: field groups to capture
+	captureFormat    string   // set on start: output format (json/ndjson/har)
 	throttleLatency  int
 	throttleDownload int
 	throttleUpload   int
@@ -39,8 +41,10 @@ func init() {
 		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			payload := map[string]interface{}{
-				"tab":    captureTab,
-				"output": captureOutput,
+				"tab":     captureTab,
+				"output":  captureOutput,
+				"include": captureInclude,
+				"format":  captureFormat,
 			}
 			_, err := client.SendCommand(port, "network/capture/start", payload)
 			if err != nil {
@@ -51,6 +55,12 @@ func init() {
 	}
 	captureStartCmd.Flags().StringVar(&captureTab, "tab", "", `Tab filter: "active", "next", "last", "<index>", or omit for all tabs`)
 	captureStartCmd.Flags().StringVarP(&captureOutput, "output", "o", "", "Write captured requests to this file on stop")
+	captureStartCmd.Flags().StringSliceVar(&captureInclude, "include", nil,
+		`Field groups to capture (comma-separated or repeated flag).
+Groups: request-headers, request-body, request-initiator, request-timestamp,
+        response-headers, response-timing, response-size.
+Wildcards: request-* (all request groups), response-* (all response groups).`)
+	captureStartCmd.Flags().StringVar(&captureFormat, "format", "", `Output format: json (default), ndjson, or har`)
 
 	captureStopCmd := &cobra.Command{
 		Use:   "stop",

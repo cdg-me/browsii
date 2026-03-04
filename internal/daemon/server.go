@@ -46,14 +46,28 @@ type RecordedEvent struct {
 
 // Server holds the state for the running browser daemon.
 type Server struct {
-	port         int
-	mode         string
-	browser      *rod.Browser
-	server       *http.Server
-	activePg     *rod.Page
-	capturedReqs []map[string]interface{}
-	capturing    bool
-	mu           sync.Mutex
+	port      int
+	mode      string
+	browser   *rod.Browser
+	server    *http.Server
+	activePg  *rod.Page
+	capturing bool
+	mu        sync.Mutex
+
+	// capturedReqs buffers network entries during an active capture session.
+	capturedReqs []*capturedRequest
+
+	// inFlightReqs maps CDP RequestID → buffered entry so that
+	// NetworkResponseReceived and NetworkLoadingFinished can update it.
+	// Cleared on capture stop.
+	inFlightReqs map[proto.NetworkRequestID]*capturedRequest
+
+	// captureInclude is the expanded set of field groups requested via --include.
+	// nil/empty = base fields only (backward-compatible default).
+	captureInclude map[string]bool
+
+	// captureFormat is the output format for capture results ("" = json).
+	captureFormat string
 	contexts     map[string]*contextState // named browser contexts
 	activeCtx    string                   // current active context name ("" = default)
 	// Recording state
@@ -128,6 +142,7 @@ func NewServer(port int, mode string) *Server {
 		sseClients:           make(map[chan StreamEvent]struct{}),
 		listenedPages:        make(map[proto.TargetTargetID]struct{}),
 		captureTabFilter:     -1,
+		inFlightReqs:         make(map[proto.NetworkRequestID]*capturedRequest),
 		consoleListenedPages: make(map[proto.TargetTargetID]struct{}),
 		consoleTabFilter:     -1,
 	}
