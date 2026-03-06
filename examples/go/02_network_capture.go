@@ -1,6 +1,6 @@
 //go:build ignore
 
-// Network capture example — demonstrates Phase 2 --include and --format options.
+// Network capture example — demonstrates --include and --format options.
 //
 // Run with: go run examples/go/02_network_capture.go
 //
@@ -8,8 +8,9 @@
 //   1. Base capture (default) — url, method, type, tab only
 //   2. --include request-headers — outgoing headers per request
 //   3. --include response-headers — status + mimeType + response headers
-//   4. --include request-*,response-* — all groups via wildcards
+//   4. --include request-*,response-* — all groups via wildcards (+ fixed receive timing)
 //   5. --format har --output — writes a HAR 1.2 file to disk
+//   6. --include response-body — full response body text
 package main
 
 import (
@@ -191,6 +192,37 @@ func main() {
 		}
 	}
 	os.Remove(harFile)
+
+	// ── Scenario 6: --include response-body ───────────────────────────────────
+	scenario("6: --include response-body  (full response body text)")
+
+	if err := c.NetworkCaptureStart(client.NetworkCaptureOpts{
+		Include: []string{"response-headers", "response-body"},
+	}); err != nil {
+		log.Fatal(err)
+	}
+	if err := c.Navigate(targetURL); err != nil {
+		log.Fatal(err)
+	}
+	time.Sleep(500 * time.Millisecond) // allow LoadingFinished + body RPC to complete
+	result, err = c.NetworkCaptureStop()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, r := range result.Requests[:min(3, len(result.Requests))] {
+		fmt.Printf("  [%d] %s\n", r.Status, r.URL)
+		if r.ResponseBody != "" {
+			preview := r.ResponseBody
+			if len(preview) > 100 {
+				preview = preview[:100] + "…"
+			}
+			if r.ResponseBodyEncoded {
+				fmt.Printf("    body (base64, %d bytes): %s\n", len(r.ResponseBody), preview)
+			} else {
+				fmt.Printf("    body (%d chars): %s\n", len(r.ResponseBody), preview)
+			}
+		}
+	}
 
 	fmt.Println("\n✓ All scenarios complete")
 }

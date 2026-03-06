@@ -37,8 +37,19 @@ type capturedRequest struct {
 	// response-size: bytes transferred over the wire (from NetworkLoadingFinished)
 	TransferSize *int64 `json:"transferSize,omitempty"`
 
+	// response-body: full response body (base64-encoded if binary)
+	ResponseBody        string `json:"responseBody,omitempty"`
+	ResponseBodyEncoded bool   `json:"responseBodyEncoded,omitempty"`
+
 	// startedAt is the wall-clock time for HAR serialization; not marshaled to JSON.
 	startedAt time.Time
+
+	// Internal timing anchors used to compute the Receive phase in NetworkLoadingFinished.
+	// requestTime is CDP ResourceTiming.RequestTime (seconds, monotonic reference).
+	// receiveHeadersEnd is CDP ResourceTiming.ReceiveHeadersEnd (ms offset from requestTime).
+	// Both are populated by the NetworkResponseReceived handler when response-timing is active.
+	requestTime        float64
+	receiveHeadersEnd  float64
 }
 
 // capturedInitiator describes what triggered a network request.

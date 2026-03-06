@@ -77,6 +77,11 @@ func (s *Server) handleNetworkCaptureStop(w http.ResponseWriter, r *http.Request
 	s.inFlightReqs = make(map[proto.NetworkRequestID]*capturedRequest)
 	s.mu.Unlock()
 
+	// Drain any in-flight response-body RPC goroutines before reading entry fields.
+	// Without this, formatNetworkEntries would race against goroutines still writing
+	// entry.ResponseBody / entry.ResponseBodyEncoded.
+	s.bodyFetchWg.Wait()
+
 	if reqs == nil {
 		reqs = []*capturedRequest{}
 	}
@@ -191,6 +196,8 @@ func marshalHAR(reqs []*capturedRequest) ([]byte, error) {
 	type harContent struct {
 		Size     int64  `json:"size"`
 		MimeType string `json:"mimeType"`
+		Text     string `json:"text,omitempty"`
+		Encoding string `json:"encoding,omitempty"` // "base64" when body is base64-encoded
 	}
 	type harResponse struct {
 		Status      int            `json:"status"`
@@ -269,18 +276,31 @@ func marshalHAR(reqs []*capturedRequest) ([]byte, error) {
 		for k, v := range req.ResponseHeaders {
 			respHeaders = append(respHeaders, harNameValue{Name: k, Value: v})
 		}
+		content := harContent{MimeType: req.MimeType}
+		if req.TransferSize != nil {
+			content.Size = *req.TransferSize
+		}
+		if req.ResponseBody != "" {
+			content.Text = req.ResponseBody
+			if req.ResponseBodyEncoded {
+				content.Encoding = "base64"
+			} else if content.Size == 0 {
+				// Fallback: derive uncompressed size from body text when response-size
+				// was not captured. Only valid for non-encoded (plain text) bodies.
+				content.Size = int64(len(req.ResponseBody))
+			}
+		}
 		harResp := harResponse{
 			Status:      req.Status,
 			StatusText:  req.StatusText,
 			HTTPVersion: "HTTP/1.1",
 			Headers:     respHeaders,
-			Content:     harContent{MimeType: req.MimeType},
+			Content:     content,
 			RedirectURL: "",
 			HeadersSize: -1,
 			BodySize:    -1,
 		}
 		if req.TransferSize != nil {
-			harResp.Content.Size = *req.TransferSize
 			harResp.BodySize = int(*req.TransferSize)
 		}
 

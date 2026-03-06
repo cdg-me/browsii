@@ -10,10 +10,11 @@ import (
 // attachNetworkListener binds CDP network listeners to a specific page.
 // It is idempotent: calling it multiple times for the same page is a no-op.
 //
-// Three event types are always registered:
+// Four event types are always registered:
 //   - NetworkRequestWillBeSent  — creates a capture entry with base fields
 //   - NetworkResponseReceived   — updates the entry with response data
-//   - NetworkLoadingFinished    — updates the entry with transfer size
+//   - NetworkLoadingFinished    — updates the entry with transfer size + receive timing
+//   - NetworkLoadingFailed      — cleans up the in-flight map to prevent leaks
 //
 // Optional fields are only populated when the corresponding group is in
 // s.captureInclude (set via --include on start). The SSE broadcast always
@@ -129,6 +130,11 @@ func (s *Server) attachNetworkListener(page *rod.Page) {
 			// response-timing: timing breakdown from CDP ResourceTiming
 			if s.captureInclude["response-timing"] && e.Response.Timing != nil {
 				t := e.Response.Timing
+
+				// Store timing anchors for Receive computation in NetworkLoadingFinished.
+				entry.requestTime = float64(t.RequestTime)
+				entry.receiveHeadersEnd = t.ReceiveHeadersEnd
+
 				timing := &capturedTiming{Receive: -1} // Receive filled by LoadingFinished
 
 				timing.DNS = phaseDuration(t.DNSStart, t.DNSEnd)
@@ -153,14 +159,17 @@ func (s *Server) attachNetworkListener(page *rod.Page) {
 		},
 
 		func(e *proto.NetworkLoadingFinished) {
+			// NOTE: explicit lock/unlock (not defer) because we release the mutex
+			// before the optional response-body goroutine to avoid holding it during I/O.
 			s.mu.Lock()
-			defer s.mu.Unlock()
 
 			if !s.capturing {
+				s.mu.Unlock()
 				return
 			}
 			entry := s.inFlightReqs[e.RequestID]
 			if entry == nil {
+				s.mu.Unlock()
 				return
 			}
 
@@ -170,6 +179,53 @@ func (s *Server) attachNetworkListener(page *rod.Page) {
 				entry.TransferSize = &size
 			}
 
+			// response-timing: fix the Receive phase now that we know the finish time.
+			// Receive = time from headers-received to body fully loaded.
+			// CDP: requestTime (seconds, monotonic) + receiveHeadersEnd (ms offset) → headers done
+			//      e.Timestamp (seconds, same monotonic clock) → body done
+			if entry.Timing != nil && entry.requestTime > 0 {
+				receiveMs := (float64(e.Timestamp)-entry.requestTime)*1000 - entry.receiveHeadersEnd
+				if receiveMs < 0 {
+					receiveMs = 0
+				}
+				entry.Timing.Receive = receiveMs
+			}
+
+			fetchBody := s.captureInclude["response-body"]
+			requestID := e.RequestID
+			delete(s.inFlightReqs, e.RequestID)
+
+			// Add(1) must be called before releasing the mutex so that
+			// handleNetworkCaptureStop cannot call Wait() between our Unlock()
+			// and the goroutine's Add(1), which would cause Wait() to return early.
+			if fetchBody {
+				s.bodyFetchWg.Add(1)
+			}
+
+			s.mu.Unlock()
+
+			// response-body: fetch via CDP RPC in a separate goroutine so that the
+			// EachEvent loop is not blocked during the round-trip (which can take
+			// hundreds of ms). bodyFetchWg tracks completion so that
+			// handleNetworkCaptureStop waits before serialising results.
+			if fetchBody {
+				go func() {
+					defer s.bodyFetchWg.Done()
+					resp, err := proto.NetworkGetResponseBody{RequestID: requestID}.Call(page)
+					if err == nil && resp != nil {
+						s.mu.Lock()
+						entry.ResponseBody = resp.Body
+						entry.ResponseBodyEncoded = resp.Base64Encoded
+						s.mu.Unlock()
+					}
+				}()
+			}
+		},
+
+		func(e *proto.NetworkLoadingFailed) {
+			// Clean up in-flight map so failed requests don't leak across long sessions.
+			s.mu.Lock()
+			defer s.mu.Unlock()
 			delete(s.inFlightReqs, e.RequestID)
 		},
 	)

@@ -53,6 +53,10 @@ type NetworkRequest struct {
 
 	// response-size: bytes transferred over the wire
 	TransferSize *int64 `json:"transferSize,omitempty"`
+
+	// response-body: full response body text (base64-encoded if binary)
+	ResponseBody        string `json:"responseBody,omitempty"`
+	ResponseBodyEncoded bool   `json:"responseBodyEncoded,omitempty"`
 }
 
 // NetworkInitiator describes what triggered a network request.

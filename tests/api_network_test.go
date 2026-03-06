@@ -851,3 +851,181 @@ func TestNetworkCapture_Format_Invalid(t *testing.T) {
 	out, _ := runCLIExpectFail(t, bin, port, "network", "capture", "stop")
 	assert.Contains(t, out, "unknown format", "invalid format should report an error")
 }
+
+// ---------------------------------------------------------------------------
+// --include response-body tests
+// ---------------------------------------------------------------------------
+
+// TestNetworkCapture_Include_ResponseBody verifies that --include response-body
+// populates the responseBody field with the actual response text.
+func TestNetworkCapture_Include_ResponseBody(t *testing.T) {
+	const bodyText = `{"hello":"world"}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, bodyText)
+	}))
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start",
+		"--include", "response-headers,response-body")
+	runCLI(t, bin, port, "navigate", server.URL)
+	// No sleep needed: capture stop blocks until all body-fetch goroutines complete.
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var reqs []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &reqs))
+	require.NotEmpty(t, reqs)
+
+	found := false
+	for _, r := range reqs {
+		if body, ok := r["responseBody"].(string); ok && body != "" {
+			found = true
+			// For JSON responses the body should contain our expected text (not base64)
+			if strings.Contains(body, "hello") {
+				assert.Equal(t, bodyText, body,
+					"responseBody should match the actual response text")
+			}
+			break
+		}
+	}
+	assert.True(t, found, "at least one entry should have a non-empty responseBody")
+}
+
+// TestNetworkCapture_Include_ResponseBody_HAR verifies that response-body is
+// included in the HAR content section when both --format har and --include
+// response-body are specified.
+func TestNetworkCapture_Include_ResponseBody_HAR(t *testing.T) {
+	const bodyText = `<html><body>hello har</body></html>`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, bodyText)
+	}))
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start",
+		"--format", "har",
+		"--include", "response-headers,response-body")
+	runCLI(t, bin, port, "navigate", server.URL)
+	// No sleep needed: capture stop blocks until all body-fetch goroutines complete.
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var har map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &har))
+
+	log := har["log"].(map[string]interface{})
+	entries := log["entries"].([]interface{})
+	require.NotEmpty(t, entries)
+
+	found := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		resp := entry["response"].(map[string]interface{})
+		content, ok := resp["content"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if text, ok := content["text"].(string); ok && text != "" {
+			found = true
+			if strings.Contains(text, "hello har") {
+				assert.Equal(t, bodyText, text,
+					"HAR content.text should contain the actual body")
+			}
+			break
+		}
+	}
+	assert.True(t, found, "HAR content.text should be populated when --include response-body is set")
+}
+
+// TestNetworkCapture_Include_ResponseBody_StopDrainsGoroutines is a regression
+// test for the race between in-flight body-fetch goroutines and capture stop.
+// It calls stop immediately after navigate with no intervening sleep: the stop
+// handler must block on bodyFetchWg.Wait() and return correct bodies anyway.
+func TestNetworkCapture_Include_ResponseBody_StopDrainsGoroutines(t *testing.T) {
+	const bodyText = `{"drain":"test"}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, bodyText)
+	}))
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	runCLI(t, bin, port, "network", "capture", "start", "--include", "response-body")
+	runCLI(t, bin, port, "navigate", server.URL)
+	// Deliberately no sleep — stop must drain body fetches itself.
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var reqs []map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &reqs))
+	require.NotEmpty(t, reqs)
+
+	found := false
+	for _, r := range reqs {
+		if body, ok := r["responseBody"].(string); ok && body != "" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "stop should drain body-fetch goroutines without an explicit sleep")
+}
+
+// TestNetworkCapture_Include_ResponseBody_HARContentSize verifies that the HAR
+// content.size field is set from the body length when response-size is not
+// captured alongside response-body.
+func TestNetworkCapture_Include_ResponseBody_HARContentSize(t *testing.T) {
+	const bodyText = `{"size":"check"}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, bodyText)
+	}))
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", server.URL)
+	// response-body only — no response-size, so content.size must be derived from body text
+	runCLI(t, bin, port, "network", "capture", "start",
+		"--format", "har", "--include", "response-body")
+	runCLI(t, bin, port, "navigate", server.URL)
+	out := runCLI(t, bin, port, "network", "capture", "stop")
+
+	var har map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(out), &har))
+	log := har["log"].(map[string]interface{})
+	entries := log["entries"].([]interface{})
+	require.NotEmpty(t, entries)
+
+	found := false
+	for _, e := range entries {
+		entry := e.(map[string]interface{})
+		resp := entry["response"].(map[string]interface{})
+		content, ok := resp["content"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		text, hasText := content["text"].(string)
+		size, hasSize := content["size"].(float64)
+		if hasText && text != "" && hasSize {
+			found = true
+			assert.Equal(t, float64(len(text)), size,
+				"content.size should equal len(content.text) when response-size is not captured")
+			break
+		}
+	}
+	assert.True(t, found, "HAR entry with non-empty content.text and content.size should exist")
+}

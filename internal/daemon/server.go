@@ -54,6 +54,10 @@ type Server struct {
 	capturing bool
 	mu        sync.Mutex
 
+	// bodyFetchWg tracks in-flight response-body RPC goroutines so that
+	// handleNetworkCaptureStop can drain them before serializing results.
+	bodyFetchWg sync.WaitGroup
+
 	// capturedReqs buffers network entries during an active capture session.
 	capturedReqs []*capturedRequest
 
