@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run unit tests
+        run: go test -race -count=1 ./internal/daemon/...
+
+  e2e:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache rod browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/rod/browser
+          key: rod-browser-${{ runner.os }}-${{ hashFiles('go.sum') }}
+
+      - name: Build
+        run: go build -o browsii ./cmd/browsii
+
+      - name: Run e2e tests
+        run: go test -count=1 -timeout 300s -skip "^TestWasm_" ./tests/...
