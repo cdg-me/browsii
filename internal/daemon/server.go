@@ -158,6 +158,9 @@ func (s *Server) Start() error {
 
 	// 1. Configure the Launcher based on mode
 	l := launcher.New()
+	if os.Getenv("CI") != "" {
+		l = l.Set("no-sandbox")
+	}
 
 	// user-* modes attach to system Chrome and use a persistent profile.
 	if s.mode == "user-headful" || s.mode == "user-headless" {

@@ -11,8 +11,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-rod/rod/lib/launcher"
 	"github.com/stretchr/testify/require"
 )
+
+// newLauncher returns a rod launcher with CI-appropriate flags pre-applied.
+func newLauncher() *launcher.Launcher {
+	l := launcher.New()
+	if os.Getenv("CI") != "" {
+		l = l.Set("no-sandbox")
+	}
+	return l
+}
 
 // portCounter provides unique ports across all tests to avoid collisions.
 var portCounter int64 = 9900

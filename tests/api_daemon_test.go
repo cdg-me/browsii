@@ -69,7 +69,7 @@ func TestBrowserLaunchAndScreenshot(t *testing.T) {
 	server := setupMockServer()
 	defer server.Close()
 
-	browser := rod.New().MustConnect()
+	browser := rod.New().ControlURL(newLauncher().Headless(true).MustLaunch()).MustConnect()
 	defer browser.MustClose()
 
 	page := browser.MustPage(server.URL)

@@ -19,7 +19,7 @@ jobs:
           cache: true
 
       - name: Run unit tests
-        run: go test -race -count=1 ./internal/daemon/...
+        run: go test -v -race -count=1 ./internal/daemon/...
 
   e2e:
     name: E2E tests
@@ -42,4 +42,4 @@ jobs:
         run: go build -o browsii ./cmd/browsii
 
       - name: Run e2e tests
-        run: go test -count=1 -timeout 300s -skip "^TestWasm_" ./tests/...
+        run: go test -v -count=1 -timeout 300s -skip "^TestWasm_" ./tests/...
