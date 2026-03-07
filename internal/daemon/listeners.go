@@ -16,19 +16,15 @@ import (
 //   - NetworkLoadingFinished    — updates the entry with transfer size + receive timing
 //   - NetworkLoadingFailed      — cleans up the in-flight map to prevent leaks
 //
-// Optional fields are only populated when the corresponding group is in
-// s.captureInclude (set via --include on start). The SSE broadcast always
-// carries only the base fields for backward compatibility.
+// The Network CDP domain is NOT enabled here. The caller is responsible for
+// enabling it (via proto.NetworkEnable) when a capture session starts and
+// disabling it (via proto.NetworkDisable) when the session ends.
 func (s *Server) attachNetworkListener(page *rod.Page) {
 	// Guard: only one listener per page, ever.
 	if _, already := s.listenedPages[page.TargetID]; already {
 		return
 	}
 	s.listenedPages[page.TargetID] = struct{}{}
-
-	// CRITICAL: The Chromium CDP Network domain is disabled by default.
-	// We MUST explicitly enable it, or EachEvent drops all payloads silently.
-	_ = proto.NetworkEnable{}.Call(page)
 
 	wait := page.EachEvent(
 		func(e *proto.NetworkRequestWillBeSent) {
@@ -243,14 +239,15 @@ func phaseDuration(start, end float64) float64 {
 
 // attachConsoleListener binds a CDP Runtime console listener to a page.
 // It is idempotent: calling it multiple times for the same page is a no-op.
+//
+// The Runtime CDP domain is NOT enabled here. The caller is responsible for
+// enabling it (via proto.RuntimeEnable) when a capture session starts and
+// disabling it (via proto.RuntimeDisable) when the session ends.
 func (s *Server) attachConsoleListener(page *rod.Page) {
 	if _, already := s.consoleListenedPages[page.TargetID]; already {
 		return
 	}
 	s.consoleListenedPages[page.TargetID] = struct{}{}
-
-	// The Runtime CDP domain must be enabled before consoleAPICalled fires.
-	_ = proto.RuntimeEnable{}.Call(page)
 
 	wait := page.EachEvent(func(e *proto.RuntimeConsoleAPICalled) {
 		level := normalizeConsoleLevel(e.Type)

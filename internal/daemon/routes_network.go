@@ -45,6 +45,7 @@ func (s *Server) handleNetworkCaptureStart(w http.ResponseWriter, r *http.Reques
 	}
 	tabFilter := resolveTabAlias(req.Tab, s.pageOrder, activeID)
 	include := expandInclude(req.Include)
+	pages := s.pagesForFilter(tabFilter)
 
 	s.mu.Lock()
 	s.capturing = true
@@ -54,7 +55,10 @@ func (s *Server) handleNetworkCaptureStart(w http.ResponseWriter, r *http.Reques
 	s.captureInclude = include
 	s.captureFormat = req.Format
 	s.inFlightReqs = make(map[proto.NetworkRequestID]*capturedRequest)
+	s.networkCapturingPages = pages
 	s.mu.Unlock()
+
+	s.networkDomain.acquirePages(pages)
 
 	s.recordAction("network_capture_start", map[string]interface{}{
 		"tab": req.Tab, "output": req.Output,
@@ -75,7 +79,11 @@ func (s *Server) handleNetworkCaptureStop(w http.ResponseWriter, r *http.Request
 	s.captureFormat = ""
 	s.captureInclude = nil
 	s.inFlightReqs = make(map[proto.NetworkRequestID]*capturedRequest)
+	pages := s.networkCapturingPages
+	s.networkCapturingPages = nil
 	s.mu.Unlock()
+
+	s.networkDomain.releasePages(pages)
 
 	// Drain any in-flight response-body RPC goroutines before reading entry fields.
 	// Without this, formatNetworkEntries would race against goroutines still writing

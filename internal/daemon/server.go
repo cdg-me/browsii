@@ -118,6 +118,11 @@ type Server struct {
 	// consoleCaptureOutputFormat is the output format for console entries (json, ndjson, text).
 	consoleCaptureOutputFormat string
 
+	networkDomain         domainRef
+	consoleDomain         domainRef
+	networkCapturingPages []*rod.Page
+	consoleCapturingPages []*rod.Page
+
 	// SSE Broadcasting
 	sseClients map[chan StreamEvent]struct{}
 	sseMu      sync.RWMutex
@@ -140,7 +145,7 @@ func (s *Server) recordAction(action string, params map[string]interface{}) {
 
 // NewServer creates a new Daemon configuration.
 func NewServer(port int, mode string) *Server {
-	return &Server{
+	s := &Server{
 		port:                 port,
 		mode:                 mode,
 		sseClients:           make(map[chan StreamEvent]struct{}),
@@ -150,6 +155,17 @@ func NewServer(port int, mode string) *Server {
 		consoleListenedPages: make(map[proto.TargetTargetID]struct{}),
 		consoleTabFilter:     -1,
 	}
+	s.networkDomain = domainRef{
+		refs:      make(map[proto.TargetTargetID]int),
+		onEnable:  enableNetworkDomain,
+		onDisable: disableNetworkDomain,
+	}
+	s.consoleDomain = domainRef{
+		refs:      make(map[proto.TargetTargetID]int),
+		onEnable:  enableConsoleDomain,
+		onDisable: disableConsoleDomain,
+	}
+	return s
 }
 
 // Start visualizes the browser based on mode and boots the local API server.

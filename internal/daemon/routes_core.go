@@ -10,8 +10,16 @@ import (
 
 func (s *Server) registerCoreRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/ping", s.handlePing)
+	mux.HandleFunc("/debug/pid", s.handleDebugPID)
 	mux.HandleFunc("/events/stream", s.handleEventsStream)
 	mux.HandleFunc("/shutdown", s.handleShutdown)
+}
+
+// handleDebugPID returns the daemon's own PID. Used by tests to find the
+// Chrome process tree without requiring any daemon-startup plumbing.
+func (s *Server) handleDebugPID(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"pid": os.Getpid()})
 }
 
 func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {

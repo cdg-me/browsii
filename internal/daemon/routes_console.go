@@ -35,6 +35,7 @@ func (s *Server) handleConsoleCaptureStart(w http.ResponseWriter, r *http.Reques
 		activeID = ap.TargetID
 	}
 	tabFilter := resolveTabAlias(req.Tab, s.pageOrder, activeID)
+	pages := s.pagesForFilter(tabFilter)
 
 	s.mu.Lock()
 	s.consoleCapturing = true
@@ -43,7 +44,10 @@ func (s *Server) handleConsoleCaptureStart(w http.ResponseWriter, r *http.Reques
 	s.consoleLevelFilter = req.Level
 	s.consoleCaptureOutputPath = req.Output
 	s.consoleCaptureOutputFormat = req.Format
+	s.consoleCapturingPages = pages
 	s.mu.Unlock()
+
+	s.consoleDomain.acquirePages(pages)
 
 	s.recordAction("console_capture_start", map[string]interface{}{"tab": req.Tab, "level": req.Level, "output": req.Output, "format": req.Format})
 	w.WriteHeader(http.StatusOK)
@@ -59,7 +63,11 @@ func (s *Server) handleConsoleCaptureStop(w http.ResponseWriter, r *http.Request
 	outputFormat := s.consoleCaptureOutputFormat
 	s.consoleCaptureOutputPath = ""
 	s.consoleCaptureOutputFormat = ""
+	pages := s.consoleCapturingPages
+	s.consoleCapturingPages = nil
 	s.mu.Unlock()
+
+	s.consoleDomain.releasePages(pages)
 
 	if entries == nil {
 		entries = []map[string]interface{}{}
