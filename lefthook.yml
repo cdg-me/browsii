@@ -1,0 +1,17 @@
+pre-commit:
+  commands:
+    fmt:
+      glob: "*.go"
+      run: |
+        UNFORMATTED=$(gofmt -l {staged_files})
+        if [ -n "$UNFORMATTED" ]; then
+          printf "Formatting issues (run: gofmt -w <file>):\n%s\n" "$UNFORMATTED"
+          exit 1
+        fi
+
+pre-push:
+  commands:
+    format:
+      run: ./scripts/format.sh
+    lint:
+      run: ./scripts/lint.sh

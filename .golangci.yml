@@ -1,0 +1,18 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet        # catches subtle correctness bugs (printf mismatches, shadowing, etc.)
+    - errcheck     # unhandled errors — nolint'd where intentionally ignored
+    - staticcheck  # broad correctness, deprecation, and style checks
+    - noctx        # http calls without context — nolint'd where intentional
+    - misspell     # typos in comments and string literals
+
+formatters:
+  enable:
+    - goimports    # enforces import formatting and grouping
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/cdg-me/browsii
