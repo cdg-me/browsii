@@ -44,6 +44,17 @@ type RecordedEvent struct {
 	Params map[string]interface{} `json:"params,omitempty"`
 }
 
+// injectJSEntry is a registered pre-load JS script. Script always holds the
+// raw JS source to pass to CDP (URL-based registrations are fetched eagerly at
+// add time and stored inline here).
+type injectJSEntry struct {
+	ID     string `json:"id"`
+	Script string `json:"script"`
+	IsURL  bool   `json:"isURL,omitempty"`
+	URL    string `json:"url,omitempty"`
+	Tab    string `json:"tab"` // "" = all tabs
+}
+
 // Server holds the state for the running browser daemon.
 type Server struct {
 	port      int
@@ -126,6 +137,23 @@ type Server struct {
 	// SSE Broadcasting
 	sseClients map[chan StreamEvent]struct{}
 	sseMu      sync.RWMutex
+
+	// inject js state
+	//
+	// injectJSGlobal holds entries registered with tab="" (all tabs). Every new
+	// page opened after registration also receives these scripts automatically
+	// (applied in trackPage via applyInjectScriptsToNewPage).
+	//
+	// injectJSByPage holds per-tab entries keyed by TargetID.
+	//
+	// injectJSCDPIDs maps our stable entry ID → (TargetID → CDP ScriptIdentifier)
+	// so that clear can call removeScriptToEvaluateOnNewDocument on each page.
+	//
+	// injectJSCounter is the monotonic source for "inject-N" IDs.
+	injectJSGlobal  []injectJSEntry
+	injectJSByPage  map[proto.TargetTargetID][]injectJSEntry
+	injectJSCDPIDs  map[string]map[proto.TargetTargetID]proto.PageScriptIdentifier
+	injectJSCounter int
 }
 
 // recordAction captures an action event if recording is active.
@@ -153,6 +181,8 @@ func NewServer(port int, mode string) *Server {
 		inFlightReqs:         make(map[proto.NetworkRequestID]*capturedRequest),
 		consoleListenedPages: make(map[proto.TargetTargetID]struct{}),
 		consoleTabFilter:     -1,
+		injectJSByPage:       make(map[proto.TargetTargetID][]injectJSEntry),
+		injectJSCDPIDs:       make(map[string]map[proto.TargetTargetID]proto.PageScriptIdentifier),
 	}
 	s.networkDomain = domainRef{
 		refs:      make(map[proto.TargetTargetID]int),
@@ -243,6 +273,7 @@ func (s *Server) Start() error {
 	s.registerSessionRoutes(mux)
 	s.registerRecordRoutes(mux)
 	s.registerContextRoutes(mux)
+	s.registerInjectRoutes(mux)
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),

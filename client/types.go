@@ -149,3 +149,14 @@ type RecordStopResult struct {
 	Name   string `json:"name"`
 	Events int    `json:"events"`
 }
+
+// InjectJSEntry is a registered pre-load JS script returned by InjectJSList.
+// Script always contains the raw JS source; for URL-based registrations the
+// content was fetched eagerly at add time.
+type InjectJSEntry struct {
+	ID     string `json:"id"`
+	Script string `json:"script"`
+	IsURL  bool   `json:"isURL,omitempty"`
+	URL    string `json:"url,omitempty"`
+	Tab    string `json:"tab"` // "" = all tabs
+}

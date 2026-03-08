@@ -37,6 +37,12 @@ func (r *Runtime) instantiateHostExports(ctx context.Context, wz wazero.Runtime)
 		NewFunctionBuilder().
 		WithFunc(r.exportRegisterConsoleListener).
 		Export("_register_console_listener").
+		NewFunctionBuilder().
+		WithFunc(r.exportInjectJSAdd).
+		Export("_inject_js_add").
+		NewFunctionBuilder().
+		WithFunc(r.exportInjectJSClear).
+		Export("_inject_js_clear").
 		Instantiate(ctx)
 	return err
 }
@@ -152,6 +158,62 @@ func (r *Runtime) exportWaitIdle(ctx context.Context, m api.Module, ms uint32, e
 	time.Sleep(time.Duration(ms) * time.Millisecond)
 
 	r.flushEvents(ctx, m)
+	return 0
+}
+
+// _inject_js_add(script_ptr, script_len, tab_ptr, tab_len, id_ptr, id_maxlen, err_ptr, err_maxlen) -> id_len
+// Registers a JS snippet to run before any other scripts on future document loads.
+// Returns the byte-length of the ID written to id_ptr on success; 0 on error (error written to err_ptr).
+func (r *Runtime) exportInjectJSAdd(ctx context.Context, m api.Module, scriptPtr, scriptLen, tabPtr, tabLen, idPtr, idMaxLen, errPtr, errMaxLen uint32) uint32 {
+	script, ok := readString(m, scriptPtr, scriptLen)
+	if !ok {
+		writeError(m, errPtr, errMaxLen, "host panic: out of bounds memory read for script")
+		return 0
+	}
+	tab, ok := readString(m, tabPtr, tabLen)
+	if !ok {
+		writeError(m, errPtr, errMaxLen, "host panic: out of bounds memory read for tab")
+		return 0
+	}
+
+	payload := map[string]string{"script": script, "tab": tab}
+	body, err := client.SendCommand(r.daemonPort, "inject/js/add", payload)
+	if err != nil {
+		writeError(m, errPtr, errMaxLen, err.Error())
+		return 0
+	}
+
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		writeError(m, errPtr, errMaxLen, "host: failed to parse inject/js/add response: "+err.Error())
+		return 0
+	}
+
+	idBytes := []byte(resp.ID)
+	writeLen := uint32(len(idBytes))
+	if writeLen > idMaxLen {
+		writeLen = idMaxLen
+	}
+	m.Memory().Write(idPtr, idBytes[:writeLen])
+	return writeLen
+}
+
+// _inject_js_clear(tab_ptr, tab_len, err_ptr, err_maxlen) -> status
+// Deregisters inject-js scripts for the given tab scope.
+// Returns 0 on success; the error byte-length on failure (error written to err_ptr).
+func (r *Runtime) exportInjectJSClear(ctx context.Context, m api.Module, tabPtr, tabLen, errPtr, errMaxLen uint32) uint32 {
+	tab, ok := readString(m, tabPtr, tabLen)
+	if !ok {
+		return writeError(m, errPtr, errMaxLen, "host panic: out of bounds memory read for tab")
+	}
+
+	payload := map[string]string{"tab": tab}
+	_, err := client.SendCommand(r.daemonPort, "inject/js/clear", payload)
+	if err != nil {
+		return writeError(m, errPtr, errMaxLen, err.Error())
+	}
 	return 0
 }
 

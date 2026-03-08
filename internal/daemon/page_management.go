@@ -75,6 +75,29 @@ func (s *Server) trackPage(p *rod.Page) {
 	s.attachNetworkListener(p)
 	s.attachConsoleListener(p)
 	s.applyDomainsToNewPage(p)
+	s.applyInjectScriptsToNewPage(p)
+}
+
+// applyInjectScriptsToNewPage registers all global inject-js entries on p so
+// that tabs opened after inject js add still receive the scripts.
+func (s *Server) applyInjectScriptsToNewPage(p *rod.Page) {
+	s.mu.Lock()
+	entries := make([]injectJSEntry, len(s.injectJSGlobal))
+	copy(entries, s.injectJSGlobal)
+	s.mu.Unlock()
+
+	for _, entry := range entries {
+		sid, err := registerInjectScript(p, entry.Script)
+		if err != nil {
+			continue
+		}
+		s.mu.Lock()
+		if s.injectJSCDPIDs[entry.ID] == nil {
+			s.injectJSCDPIDs[entry.ID] = make(map[proto.TargetTargetID]proto.PageScriptIdentifier)
+		}
+		s.injectJSCDPIDs[entry.ID][p.TargetID] = sid
+		s.mu.Unlock()
+	}
 }
 
 // untrackPage removes a page from pageOrder and all listener tracking maps.

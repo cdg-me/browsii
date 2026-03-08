@@ -143,6 +143,61 @@ func allocate(size uint32) uint32 {
 	return ptrToBytes(buf)
 }
 
+// --- Inject JS ---
+
+//go:wasmimport browsii _inject_js_add
+func _inject_js_add(scriptPtr, scriptLen, tabPtr, tabLen, idPtr, idMaxLen, errPtr, errMaxLen uint32) uint32
+
+//go:wasmimport browsii _inject_js_clear
+func _inject_js_clear(tabPtr, tabLen, errPtr, errMaxLen uint32) uint32
+
+// InjectJS registers script to run before any other scripts on future document
+// loads for all tabs. Returns the stable entry ID assigned by the host.
+func InjectJS(script string) (string, error) {
+	return InjectJSFor(script, "")
+}
+
+// InjectJSFor is like InjectJS but scopes the injection to tab.
+// tab uses the standard filter values: "", "all", "active", "next", "last", or a numeric index.
+func InjectJSFor(script, tab string) (string, error) {
+	sp, sl := stringToPtr(script)
+	tp, tl := stringToPtr(tab)
+
+	idBuf := make([]byte, 64)
+	idPtr := ptrToBytes(idBuf)
+
+	errBuf := make([]byte, maxErrLen)
+	errPtr := ptrToBytes(errBuf)
+
+	idLen := _inject_js_add(sp, sl, tp, tl, idPtr, 64, errPtr, maxErrLen)
+	if idLen == 0 {
+		// A zero return with non-empty error buffer signals failure.
+		if errBuf[0] != 0 {
+			end := uint32(0)
+			for end < maxErrLen && errBuf[end] != 0 {
+				end++
+			}
+			return "", errors.New("host error: " + string(errBuf[:end]))
+		}
+	}
+	return string(idBuf[:idLen]), nil
+}
+
+// InjectJSClear deregisters inject-js scripts for the given tab scope.
+// Pass "" to clear all scopes.
+func InjectJSClear(tab string) error {
+	tp, tl := stringToPtr(tab)
+
+	errBuf := make([]byte, maxErrLen)
+	errPtr := ptrToBytes(errBuf)
+
+	status := _inject_js_clear(tp, tl, errPtr, maxErrLen)
+	if status > 0 {
+		return errors.New("host error: " + string(errBuf[:status]))
+	}
+	return nil
+}
+
 // --- Event Callbacks ---
 
 // NetworkEvent represents an intercepted browser request.

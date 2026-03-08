@@ -172,6 +172,18 @@ func setupConsoleServer() *httptest.Server {
 	}))
 }
 
+// setupInjectOrderServer returns a server whose page pushes "page" onto window.__log
+// via an inline <script>. Inject-js tests prepend their own push("inject") to prove
+// ordering: the inject must run before the inline page script.
+func setupInjectOrderServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		fmt.Fprint(w, `<!DOCTYPE html><html><body>`+ //nolint:errcheck
+			`<script>window.__log = window.__log || []; window.__log.push("page");</script>`+
+			`</body></html>`)
+	}))
+}
+
 // setupFetchServer returns a server whose root page immediately fires fetch(fetchPath)
 // (no setTimeout — synchronous script execution during page load), and fetchPath
 // responds with {"ok":true}. Use a unique fetchPath per test to distinguish events.
