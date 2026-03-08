@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-
 func TestNetworkCapture_RecordsRequests(t *testing.T) {
 	// Create a server with multiple resources
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -152,8 +151,8 @@ func TestNetworkCapture_AllTabs_Default(t *testing.T) {
 	bin, cleanup := startDaemon(t, port)
 	defer cleanup()
 
-	runCLI(t, bin, port, "navigate", serverA.URL)        // tab 0
-	runCLI(t, bin, port, "tab", "new", serverB.URL)      // tab 1
+	runCLI(t, bin, port, "navigate", serverA.URL)   // tab 0
+	runCLI(t, bin, port, "tab", "new", serverB.URL) // tab 1
 
 	runCLI(t, bin, port, "network", "capture", "start") // default: all tabs
 
@@ -221,9 +220,9 @@ func TestNetworkCapture_TabFilter_Active(t *testing.T) {
 	bin, cleanup := startDaemon(t, port)
 	defer cleanup()
 
-	runCLI(t, bin, port, "navigate", serverA.URL)       // tab 0
-	runCLI(t, bin, port, "tab", "new", serverB.URL)     // tab 1
-	runCLI(t, bin, port, "tab", "switch", "0")          // make tab 0 active
+	runCLI(t, bin, port, "navigate", serverA.URL)   // tab 0
+	runCLI(t, bin, port, "tab", "new", serverB.URL) // tab 1
+	runCLI(t, bin, port, "tab", "switch", "0")      // make tab 0 active
 
 	runCLI(t, bin, port, "network", "capture", "start", "--tab", "active") // resolves to tab 0
 
@@ -264,8 +263,8 @@ func TestNetworkCapture_TabFilter_Index(t *testing.T) {
 	bin, cleanup := startDaemon(t, port)
 	defer cleanup()
 
-	runCLI(t, bin, port, "navigate", serverA.URL)    // tab 0
-	runCLI(t, bin, port, "tab", "new", serverB.URL)  // tab 1
+	runCLI(t, bin, port, "navigate", serverA.URL)   // tab 0
+	runCLI(t, bin, port, "tab", "new", serverB.URL) // tab 1
 
 	runCLI(t, bin, port, "network", "capture", "start", "--tab", "0")
 
@@ -347,8 +346,8 @@ func TestNetworkCapture_TabFilter_Last(t *testing.T) {
 	bin, cleanup := startDaemon(t, port)
 	defer cleanup()
 
-	runCLI(t, bin, port, "navigate", serverA.URL)    // tab 0
-	runCLI(t, bin, port, "tab", "new", serverB.URL)  // tab 1 = last
+	runCLI(t, bin, port, "navigate", serverA.URL)   // tab 0
+	runCLI(t, bin, port, "tab", "new", serverB.URL) // tab 1 = last
 
 	runCLI(t, bin, port, "network", "capture", "start", "--tab", "last") // resolves to tab 1
 

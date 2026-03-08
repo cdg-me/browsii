@@ -17,7 +17,7 @@ func TestUpload_SetsFileInput(t *testing.T) {
 	// Create a temp file to upload
 	tmpFile, err := os.CreateTemp("", "upload_test_*.txt")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name()) //nolint:errcheck
+	defer os.Remove(tmpFile.Name())               //nolint:errcheck
 	tmpFile.WriteString("hello from upload test") //nolint:errcheck
 	tmpFile.Close()                               //nolint:errcheck
 

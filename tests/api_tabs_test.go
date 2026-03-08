@@ -150,8 +150,14 @@ func itoa(i int) string {
 
 // parseTabList parses "  [N] Title (URL)" lines from tab list output.
 // Returns a slice of (index, url) pairs in the order they appear.
-func parseTabList(output string) []struct{ Index int; URL string } {
-	var result []struct{ Index int; URL string }
+func parseTabList(output string) []struct {
+	Index int
+	URL   string
+} {
+	var result []struct {
+		Index int
+		URL   string
+	}
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "[") {
@@ -171,13 +177,19 @@ func parseTabList(output string) []struct{ Index int; URL string } {
 			continue
 		}
 		url := line[openParen+1 : closeParen]
-		result = append(result, struct{ Index int; URL string }{idx, url})
+		result = append(result, struct {
+			Index int
+			URL   string
+		}{idx, url})
 	}
 	return result
 }
 
 // tabIndexFor returns the index of the tab whose URL contains addr, or -1.
-func tabIndexFor(tabs []struct{ Index int; URL string }, addr string) int {
+func tabIndexFor(tabs []struct {
+	Index int
+	URL   string
+}, addr string) int {
 	for _, tab := range tabs {
 		if strings.Contains(tab.URL, addr) {
 			return tab.Index

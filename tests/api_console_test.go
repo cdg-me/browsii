@@ -70,7 +70,7 @@ func TestConsoleCapture_AllLevels(t *testing.T) {
 
 	for _, want := range []struct{ level, text string }{
 		{"log", "hello log"},
-		{"warn", "hello warn"},   // CDP "warning" normalized to "warn"
+		{"warn", "hello warn"}, // CDP "warning" normalized to "warn"
 		{"error", "hello error"},
 		{"info", "hello info"},
 		{"debug", "hello debug"},

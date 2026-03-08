@@ -178,4 +178,3 @@ func TestCPU_DomainEnableDisable(t *testing.T) {
 		t.Errorf("expected ≥1.0pp CPU reduction after disabling domains, got %.1fpp", delta)
 	}
 }
-

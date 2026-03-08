@@ -5,12 +5,12 @@
 // Run with: go run examples/go/02_network_capture.go
 //
 // Scenarios covered:
-//   1. Base capture (default) — url, method, type, tab only
-//   2. --include request-headers — outgoing headers per request
-//   3. --include response-headers — status + mimeType + response headers
-//   4. --include request-*,response-* — all groups via wildcards (+ fixed receive timing)
-//   5. --format har --output — writes a HAR 1.2 file to disk
-//   6. --include response-body — full response body text
+//  1. Base capture (default) — url, method, type, tab only
+//  2. --include request-headers — outgoing headers per request
+//  3. --include response-headers — status + mimeType + response headers
+//  4. --include request-*,response-* — all groups via wildcards (+ fixed receive timing)
+//  5. --format har --output — writes a HAR 1.2 file to disk
+//  6. --include response-body — full response body text
 package main
 
 import (

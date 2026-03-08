@@ -9,10 +9,10 @@ import (
 
 // CapturedEntry mirrors the fields from each ConsoleEvent.
 type CapturedEntry struct {
-	Level string       `json:"level"`
-	Text  string       `json:"text"`
+	Level string           `json:"level"`
+	Text  string           `json:"text"`
 	Args  []sdk.ConsoleArg `json:"args"`
-	Tab   int          `json:"tab"`
+	Tab   int              `json:"tab"`
 }
 
 type ConsoleResult struct {
