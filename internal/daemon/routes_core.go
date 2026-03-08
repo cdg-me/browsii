@@ -19,7 +19,12 @@ func (s *Server) registerCoreRoutes(mux *http.ServeMux) {
 // Chrome process tree without requiring any daemon-startup plumbing.
 func (s *Server) handleDebugPID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"pid": os.Getpid()}) //nolint:errcheck
+	buf, err := json.Marshal(map[string]int{"pid": os.Getpid()})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(buf) //nolint:errcheck
 }
 
 func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {

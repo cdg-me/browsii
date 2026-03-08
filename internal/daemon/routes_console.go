@@ -92,10 +92,15 @@ func (s *Server) handleConsoleCaptureStop(w http.ResponseWriter, r *http.Request
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
+		buf, err := json.Marshal(map[string]interface{}{
 			"path":  outputPath,
 			"count": len(entries),
 		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write(buf) //nolint:errcheck
 		return
 	}
 

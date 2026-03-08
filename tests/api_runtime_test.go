@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -37,7 +38,7 @@ func TestWasm_NetworkEvents(t *testing.T) {
 
 	// Seed tab to prevent race conditions on very first launch
 	runCLI(t, bin, port, "navigate", "about:blank")
-	exec.Command(bin, "install-runtimes").Run() //nolint:errcheck,noctx
+	exec.CommandContext(context.Background(), bin, "install-runtimes").Run() //nolint:errcheck
 
 	scriptContent := fmt.Sprintf(`//go:build wasip1
 package main
@@ -108,7 +109,7 @@ func TestWasm_BasicNavigation(t *testing.T) {
 	bin, cleanup := startDaemon(t, port)
 	defer cleanup()
 
-	exec.Command(bin, "install-runtimes").Run() //nolint:errcheck,noctx
+	exec.CommandContext(context.Background(), bin, "install-runtimes").Run() //nolint:errcheck
 
 	scriptContent := fmt.Sprintf(`//go:build wasip1
 package main
@@ -156,7 +157,7 @@ func TestWasm_NetworkEvents_ImmediateFetch(t *testing.T) {
 	defer cleanup()
 
 	runCLI(t, bin, port, "navigate", "about:blank")
-	exec.Command(bin, "install-runtimes").Run() //nolint:errcheck,noctx
+	exec.CommandContext(context.Background(), bin, "install-runtimes").Run() //nolint:errcheck
 
 	scriptContent := fmt.Sprintf(`//go:build wasip1
 package main
@@ -220,7 +221,7 @@ func TestWasm_NetworkEvents_NoDuplicates(t *testing.T) {
 	defer cleanup()
 
 	runCLI(t, bin, port, "navigate", "about:blank")
-	exec.Command(bin, "install-runtimes").Run() //nolint:errcheck,noctx
+	exec.CommandContext(context.Background(), bin, "install-runtimes").Run() //nolint:errcheck
 
 	scriptContent := fmt.Sprintf(`//go:build wasip1
 package main
@@ -293,7 +294,7 @@ func TestWasm_ConsoleEvents(t *testing.T) {
 	bin, cleanup := startDaemon(t, port)
 	defer cleanup()
 
-	exec.Command(bin, "install-runtimes").Run() //nolint:errcheck,noctx
+	exec.CommandContext(context.Background(), bin, "install-runtimes").Run() //nolint:errcheck
 
 	scriptContent := fmt.Sprintf(`//go:build wasip1
 package main

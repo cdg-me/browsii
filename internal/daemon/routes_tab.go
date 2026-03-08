@@ -48,7 +48,12 @@ func (s *Server) handleTabList(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAction("tab_list", nil)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result) //nolint:errcheck
+	buf, err := json.Marshal(result)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(buf) //nolint:errcheck
 }
 
 func (s *Server) handleTabClose(w http.ResponseWriter, r *http.Request) {

@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -47,12 +48,12 @@ func binPath(t *testing.T) string {
 func startDaemon(t *testing.T, port int) (bin string, cleanup func()) {
 	t.Helper()
 	bin = binPath(t)
-	startCmd := exec.Command(bin, "start", "--port", fmt.Sprintf("%d", port), "--mode", "headless")
+	startCmd := exec.CommandContext(context.Background(), bin, "start", "--port", fmt.Sprintf("%d", port), "--mode", "headless")
 	err := startCmd.Start()
 	require.NoError(t, err, "Failed to start daemon")
 
 	cleanup = func() {
-		exec.Command(bin, "stop", "--port", fmt.Sprintf("%d", port)).Run() //nolint:errcheck
+		exec.CommandContext(context.Background(), bin, "stop", "--port", fmt.Sprintf("%d", port)).Run() //nolint:errcheck
 		if startCmd.Process != nil {
 			startCmd.Process.Kill() //nolint:errcheck
 		}
@@ -62,7 +63,8 @@ func startDaemon(t *testing.T, port int) (bin string, cleanup func()) {
 	pingURL := fmt.Sprintf("http://127.0.0.1:%d/ping", port)
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(pingURL) //nolint:noctx
+		pollReq, _ := http.NewRequestWithContext(context.Background(), "GET", pingURL, nil)
+		resp, err := http.DefaultClient.Do(pollReq)
 		if err == nil {
 			resp.Body.Close() //nolint:errcheck
 			if resp.StatusCode == http.StatusOK {
@@ -80,7 +82,7 @@ func startDaemon(t *testing.T, port int) (bin string, cleanup func()) {
 func runCLI(t *testing.T, bin string, port int, args ...string) string {
 	t.Helper()
 	fullArgs := append(args, "--port", fmt.Sprintf("%d", port))
-	cmd := exec.Command(bin, fullArgs...)
+	cmd := exec.CommandContext(context.Background(), bin, fullArgs...)
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "CLI command %v failed: %s", args, string(out))
 	return string(out)
@@ -91,7 +93,7 @@ func runCLI(t *testing.T, bin string, port int, args ...string) string {
 func runCLIExpectFail(t *testing.T, bin string, port int, args ...string) (string, error) {
 	t.Helper()
 	fullArgs := append(args, "--port", fmt.Sprintf("%d", port))
-	cmd := exec.Command(bin, fullArgs...)
+	cmd := exec.CommandContext(context.Background(), bin, fullArgs...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

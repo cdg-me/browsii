@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -17,7 +18,12 @@ func init() {
 			url := fmt.Sprintf("http://127.0.0.1:%d/shutdown", port)
 			client := &http.Client{Timeout: 2 * time.Second}
 
-			resp, err := client.Get(url) //nolint:noctx
+			req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
+			if err != nil {
+				fmt.Printf("Error stopping daemon on port %d: %v\n", port, err)
+				return
+			}
+			resp, err := client.Do(req)
 			if err != nil {
 				fmt.Printf("Error stopping daemon on port %d: %v\n", port, err)
 				fmt.Println("Is it running?")

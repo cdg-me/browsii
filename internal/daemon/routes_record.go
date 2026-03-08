@@ -59,11 +59,17 @@ func (s *Server) handleRecordStop(w http.ResponseWriter, r *http.Request) {
 	var recFile string
 	if filepath.IsAbs(name) {
 		recFile = name
-		os.MkdirAll(filepath.Dir(recFile), 0755) //nolint:errcheck
+		if err := os.MkdirAll(filepath.Dir(recFile), 0755); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	} else {
 		homeDir, _ := os.UserHomeDir()
 		recDir := filepath.Join(homeDir, ".browsii", "recordings")
-		os.MkdirAll(recDir, 0755) //nolint:errcheck
+		if err := os.MkdirAll(recDir, 0755); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		recFile = filepath.Join(recDir, name+".json")
 	}
 
@@ -74,10 +80,15 @@ func (s *Server) handleRecordStop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
+	buf, err := json.Marshal(map[string]interface{}{
 		"name":   name,
 		"events": len(events),
 	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(buf) //nolint:errcheck
 }
 
 // /record/replay endpoint — replays a recorded session
@@ -342,7 +353,12 @@ func (s *Server) handleRecordList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(recordings) //nolint:errcheck
+	buf, err := json.Marshal(recordings)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(buf) //nolint:errcheck
 }
 
 // /record/delete endpoint — removes a recording

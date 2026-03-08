@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -84,7 +85,11 @@ func (c *Client) waitReady(errCh <-chan error) error {
 			return err
 		default:
 		}
-		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/ping", c.port)) //nolint:noctx
+		req, err := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://127.0.0.1:%d/ping", c.port), nil)
+		if err != nil {
+			return err
+		}
+		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			resp.Body.Close() //nolint:errcheck
 			if resp.StatusCode == http.StatusOK {
@@ -98,7 +103,7 @@ func (c *Client) waitReady(errCh <-chan error) error {
 
 // freePort asks the OS for an available TCP port.
 func freePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0") //nolint:noctx
+	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		return 0, err
 	}

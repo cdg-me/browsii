@@ -132,7 +132,12 @@ func (s *Server) handleLinks(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAction("links", map[string]interface{}{"pattern": req.Pattern})
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(links) //nolint:errcheck
+	buf, err := json.Marshal(links)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(buf) //nolint:errcheck
 }
 
 func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +161,10 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 		// Element screenshot
 		el := page.MustElement(req.Element)
 		data, _ := el.Screenshot(proto.PageCaptureScreenshotFormatPng, 0)
-		os.WriteFile(req.Filename, data, 0644) //nolint:errcheck
+		if err := os.WriteFile(req.Filename, data, 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	} else if req.FullPage {
 		// Full page screenshot
 		page.MustScreenshotFullPage(req.Filename)
@@ -254,5 +262,10 @@ func (s *Server) handleCookies(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAction("cookies", nil)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(cookies) //nolint:errcheck
+	buf, err := json.Marshal(cookies)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(buf) //nolint:errcheck
 }

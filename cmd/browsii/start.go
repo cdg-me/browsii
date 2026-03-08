@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -39,7 +40,12 @@ func init() {
 
 			// 1. Check if it's already running
 			client := &http.Client{Timeout: 1 * time.Second}
-			resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/ping", port)) //nolint:noctx
+			pingURL := fmt.Sprintf("http://127.0.0.1:%d/ping", port)
+			req, err := http.NewRequestWithContext(context.Background(), "GET", pingURL, nil)
+			if err != nil {
+				log.Fatalf("Failed to create request: %v", err)
+			}
+			resp, err := client.Do(req)
 			if err == nil && resp.StatusCode == 200 {
 				fmt.Printf("Daemon is already running on port %d\n", port)
 				return
@@ -51,7 +57,7 @@ func init() {
 				log.Fatalf("Failed to get executable path: %v", err)
 			}
 
-			bgCmd := exec.Command(executable, "daemon", "--port", fmt.Sprintf("%d", port), "--mode", mode) //nolint:noctx
+			bgCmd := exec.CommandContext(context.Background(), executable, "daemon", "--port", fmt.Sprintf("%d", port), "--mode", mode)
 
 			// Detach it from the current terminal
 			if err := bgCmd.Start(); err != nil {
@@ -63,7 +69,8 @@ func init() {
 			// Polling wait to ensure it comes up before we return control
 			for i := 0; i < 10; i++ {
 				time.Sleep(500 * time.Millisecond)
-				r, e := client.Get(fmt.Sprintf("http://127.0.0.1:%d/ping", port)) //nolint:noctx
+				pollReq, _ := http.NewRequestWithContext(context.Background(), "GET", pingURL, nil)
+				r, e := client.Do(pollReq)
 				if e == nil && r.StatusCode == 200 {
 					return
 				}

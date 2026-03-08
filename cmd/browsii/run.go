@@ -68,7 +68,7 @@ func compileOrLoad(input string) ([]byte, error) {
 	}
 
 	outWasm := filepath.Join(buildDir, "out.wasm")
-	c := exec.Command("tinygo", "build", "-o", outWasm, "-target", "wasip1", ".") //nolint:noctx
+	c := exec.CommandContext(context.Background(), "tinygo", "build", "-o", outWasm, "-target", "wasip1", ".")
 	c.Dir = buildDir
 	c.Stdout = os.Stderr
 	c.Stderr = os.Stderr

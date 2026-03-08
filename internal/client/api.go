@@ -26,7 +26,7 @@ func SendCommand(port int, endpoint string, payload interface{}) ([]byte, error)
 		reqBody = bytes.NewBuffer(jsonData)
 	}
 
-	req, err := http.NewRequest("POST", url, reqBody) //nolint:noctx
+	req, err := http.NewRequestWithContext(context.Background(), "POST", url, reqBody)
 	if err != nil {
 		return nil, err
 	}

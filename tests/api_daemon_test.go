@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,7 +22,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	port := nextPort()
 
 	// Start the daemon
-	startCmd := exec.Command(bin, "start", "--port", fmt.Sprintf("%d", port), "--mode", "headless") //nolint:noctx
+	startCmd := exec.CommandContext(context.Background(), bin, "start", "--port", fmt.Sprintf("%d", port), "--mode", "headless")
 	startCmd.Stdout = os.Stdout
 	startCmd.Stderr = os.Stderr
 
@@ -29,7 +30,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	require.NoError(t, err, "Failed to execute start wrapper")
 
 	defer func() {
-		exec.Command(bin, "stop", "--port", fmt.Sprintf("%d", port)).Run() //nolint:errcheck,noctx
+		exec.CommandContext(context.Background(), bin, "stop", "--port", fmt.Sprintf("%d", port)).Run() //nolint:errcheck
 	}()
 
 	// Poll /ping until alive
@@ -38,7 +39,8 @@ func TestDaemonLifecycle(t *testing.T) {
 
 	alive := false
 	for i := 0; i < 15; i++ {
-		resp, pingErr := client.Get(apiURL + "/ping") //nolint:noctx
+		pingReq, _ := http.NewRequestWithContext(context.Background(), "GET", apiURL+"/ping", nil)
+		resp, pingErr := client.Do(pingReq)
 		if pingErr == nil && resp.StatusCode == 200 {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close() //nolint:errcheck
@@ -52,14 +54,15 @@ func TestDaemonLifecycle(t *testing.T) {
 	require.True(t, alive, "Daemon failed to start and respond to /ping within timeout")
 
 	// Stop the daemon
-	stopCmd := exec.Command(bin, "stop", "--port", fmt.Sprintf("%d", port)) //nolint:noctx
+	stopCmd := exec.CommandContext(context.Background(), bin, "stop", "--port", fmt.Sprintf("%d", port))
 	stopOut, err := stopCmd.CombinedOutput()
 	require.NoError(t, err, "Stop command failed: %s", string(stopOut))
 	assert.Contains(t, string(stopOut), "Daemon gracefully shut down.")
 
 	// Verify dead
 	time.Sleep(1 * time.Second)
-	_, pingErr := client.Get(apiURL + "/ping") //nolint:noctx
+	pingReq2, _ := http.NewRequestWithContext(context.Background(), "GET", apiURL+"/ping", nil)
+	_, pingErr := client.Do(pingReq2)
 	assert.Error(t, pingErr, "Daemon should be dead, but /ping still succeeded")
 }
 

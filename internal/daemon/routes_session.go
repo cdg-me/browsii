@@ -58,7 +58,10 @@ func (s *Server) handleSessionSave(w http.ResponseWriter, r *http.Request) {
 	// Write to ~/.browsii/sessions/<name>.json
 	homeDir, _ := os.UserHomeDir()
 	sessDir := filepath.Join(homeDir, ".browsii", "sessions")
-	os.MkdirAll(sessDir, 0755) //nolint:errcheck
+	if err := os.MkdirAll(sessDir, 0755); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	data, _ := json.MarshalIndent(session, "", "  ")
 	if err := os.WriteFile(filepath.Join(sessDir, req.Name+".json"), data, 0644); err != nil {
@@ -191,7 +194,12 @@ func (s *Server) handleSessionList(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAction("session_list", nil)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(sessions) //nolint:errcheck
+	buf, err := json.Marshal(sessions)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write(buf) //nolint:errcheck
 }
 
 // /session/delete endpoint — removes a saved session
