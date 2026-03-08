@@ -52,9 +52,9 @@ func startDaemon(t *testing.T, port int) (bin string, cleanup func()) {
 	require.NoError(t, err, "Failed to start daemon")
 
 	cleanup = func() {
-		exec.Command(bin, "stop", "--port", fmt.Sprintf("%d", port)).Run()
+		exec.Command(bin, "stop", "--port", fmt.Sprintf("%d", port)).Run() //nolint:errcheck
 		if startCmd.Process != nil {
-			startCmd.Process.Kill()
+			startCmd.Process.Kill() //nolint:errcheck
 		}
 	}
 
@@ -64,7 +64,7 @@ func startDaemon(t *testing.T, port int) (bin string, cleanup func()) {
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(pingURL) //nolint:noctx
 		if err == nil {
-			resp.Body.Close()
+			resp.Body.Close() //nolint:errcheck
 			if resp.StatusCode == http.StatusOK {
 				return bin, cleanup
 			}
@@ -101,7 +101,7 @@ func setupMockServer() *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `
+		_, _ = fmt.Fprint(w, `
 			<!DOCTYPE html>
 			<html>
 			<head>
@@ -138,7 +138,7 @@ func setupMockServer() *httptest.Server {
 func setupNamedServer(name string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<html><head><title>%s</title></head><body><h1 id="identity">I am %s</h1></body></html>`, name, name)
+		fmt.Fprintf(w, `<html><head><title>%s</title></head><body><h1 id="identity">I am %s</h1></body></html>`, name, name) //nolint:errcheck
 	}))
 }
 
@@ -146,7 +146,7 @@ func setupNamedServer(name string) *httptest.Server {
 func setupTallServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><head><title>Tall Page</title></head><body style="height:5000px"><h1>Top</h1><div style="position:absolute;bottom:0">Bottom</div></body></html>`)
+		fmt.Fprint(w, `<html><head><title>Tall Page</title></head><body style="height:5000px"><h1>Top</h1><div style="position:absolute;bottom:0">Bottom</div></body></html>`) //nolint:errcheck
 	}))
 }
 
@@ -157,9 +157,9 @@ func setupConsoleServer() *httptest.Server {
 		w.Header().Set("Content-Type", "text/html")
 		switch r.URL.Path {
 		case "/multi":
-			fmt.Fprint(w, `<html><body><script>console.log("alpha", "beta", 42);</script></body></html>`)
+			fmt.Fprint(w, `<html><body><script>console.log("alpha", "beta", 42);</script></body></html>`) //nolint:errcheck
 		default:
-			fmt.Fprint(w, `<html><body><script>
+			_, _ = fmt.Fprint(w, `<html><body><script>
 				console.log("hello log");
 				console.warn("hello warn");
 				console.error("hello error");
@@ -177,10 +177,10 @@ func setupFetchServer(fetchPath string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == fetchPath {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"ok":true}`)
+			fmt.Fprint(w, `{"ok":true}`) //nolint:errcheck
 			return
 		}
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprintf(w, `<html><body><script>fetch('%s')</script></body></html>`, fetchPath)
+		fmt.Fprintf(w, `<html><body><script>fetch('%s')</script></body></html>`, fetchPath) //nolint:errcheck
 	}))
 }

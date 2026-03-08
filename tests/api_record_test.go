@@ -35,7 +35,7 @@ func TestRecord_CapturesActions(t *testing.T) {
 	// Verify recording file
 	homeDir, _ := os.UserHomeDir()
 	recFile := filepath.Join(homeDir, ".browsii", "recordings", "capture-test.json")
-	defer os.Remove(recFile)
+	defer os.Remove(recFile) //nolint:errcheck
 
 	data, err := os.ReadFile(recFile)
 	require.NoError(t, err, "Recording file should exist")
@@ -78,7 +78,7 @@ func TestRecord_ReplayRestoresState(t *testing.T) {
 
 	homeDir, _ := os.UserHomeDir()
 	recFile := filepath.Join(homeDir, ".browsii", "recordings", "replay-test.json")
-	defer os.Remove(recFile)
+	defer os.Remove(recFile) //nolint:errcheck
 
 	// Navigate and start recording
 	runCLI(t, bin, port, "navigate", server.URL)
@@ -113,8 +113,8 @@ func TestRecord_ListAndDelete(t *testing.T) {
 	runCLI(t, bin, port, "navigate", "about:blank")
 
 	homeDir, _ := os.UserHomeDir()
-	defer os.Remove(filepath.Join(homeDir, ".browsii", "recordings", "list-a.json"))
-	defer os.Remove(filepath.Join(homeDir, ".browsii", "recordings", "list-b.json"))
+	defer os.Remove(filepath.Join(homeDir, ".browsii", "recordings", "list-a.json")) //nolint:errcheck
+	defer os.Remove(filepath.Join(homeDir, ".browsii", "recordings", "list-b.json")) //nolint:errcheck
 
 	// Create two recordings
 	runCLI(t, bin, port, "record", "start", "list-a")

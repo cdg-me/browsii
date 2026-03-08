@@ -30,7 +30,7 @@ func TestSession_SaveAndResume(t *testing.T) {
 	// Verify session file was created
 	homeDir, _ := os.UserHomeDir()
 	sessionFile := filepath.Join(homeDir, ".browsii", "sessions", "test-session.json")
-	defer os.Remove(sessionFile)
+	defer os.Remove(sessionFile) //nolint:errcheck
 
 	data, err := os.ReadFile(sessionFile)
 	require.NoError(t, err, "Session file should exist")
@@ -85,7 +85,7 @@ func TestSession_ResumeRestoresState(t *testing.T) {
 
 	homeDir, _ := os.UserHomeDir()
 	sessionFile := filepath.Join(homeDir, ".browsii", "sessions", "resume-test.json")
-	defer os.Remove(sessionFile)
+	defer os.Remove(sessionFile) //nolint:errcheck
 
 	// Start fresh
 	runCLI(t, bin, port, "session", "new", "blank")
@@ -111,8 +111,8 @@ func TestSession_ListShowsSessions(t *testing.T) {
 	runCLI(t, bin, port, "session", "save", "list-test-b")
 
 	homeDir, _ := os.UserHomeDir()
-	defer os.Remove(filepath.Join(homeDir, ".browsii", "sessions", "list-test-a.json"))
-	defer os.Remove(filepath.Join(homeDir, ".browsii", "sessions", "list-test-b.json"))
+	defer os.Remove(filepath.Join(homeDir, ".browsii", "sessions", "list-test-a.json")) //nolint:errcheck
+	defer os.Remove(filepath.Join(homeDir, ".browsii", "sessions", "list-test-b.json")) //nolint:errcheck
 
 	// List sessions
 	out := runCLI(t, bin, port, "session", "list")

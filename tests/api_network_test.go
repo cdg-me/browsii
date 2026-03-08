@@ -24,7 +24,7 @@ func TestNetworkCapture_RecordsRequests(t *testing.T) {
 		switch r.URL.Path {
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<html><body>
+			_, _ = fmt.Fprint(w, `<html><body>
 				<div id="result">loading</div>
 				<script>
 					fetch('/api/data').then(r => r.text()).then(d => {
@@ -34,7 +34,7 @@ func TestNetworkCapture_RecordsRequests(t *testing.T) {
 			</body></html>`)
 		case "/api/data":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"status":"ok"}`)
+			fmt.Fprint(w, `{"status":"ok"}`) //nolint:errcheck
 		default:
 			http.NotFound(w, r)
 		}
@@ -100,7 +100,7 @@ func TestRouteMock_InterceptsRequests(t *testing.T) {
 		switch r.URL.Path {
 		case "/":
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<html><body>
+			_, _ = fmt.Fprint(w, `<html><body>
 				<div id="result">loading</div>
 				<script>
 					fetch('/api/users').then(r => r.json()).then(d => {
@@ -110,7 +110,7 @@ func TestRouteMock_InterceptsRequests(t *testing.T) {
 			</body></html>`)
 		case "/api/users":
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"name":"real_user"}`)
+			fmt.Fprint(w, `{"name":"real_user"}`) //nolint:errcheck
 		}
 	}))
 	defer apiServer.Close()
@@ -408,11 +408,11 @@ func TestNetworkCapture_SSE(t *testing.T) {
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/test.json" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"status":"ok"}`)
+			fmt.Fprint(w, `{"status":"ok"}`) //nolint:errcheck
 			return
 		}
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 			<script>
 				fetch('/test.json');
 			</script>
@@ -437,7 +437,7 @@ func TestNetworkCapture_SSE(t *testing.T) {
 
 	clientResp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err, "Failed to connect to SSE stream")
-	defer clientResp.Body.Close()
+	defer clientResp.Body.Close() //nolint:errcheck
 
 	// Wait a moment for SSE connection to establish
 	time.Sleep(200 * time.Millisecond)
@@ -862,7 +862,7 @@ func TestNetworkCapture_Include_ResponseBody(t *testing.T) {
 	const bodyText = `{"hello":"world"}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, bodyText)
+		fmt.Fprint(w, bodyText) //nolint:errcheck
 	}))
 	defer server.Close()
 
@@ -903,7 +903,7 @@ func TestNetworkCapture_Include_ResponseBody_HAR(t *testing.T) {
 	const bodyText = `<html><body>hello har</body></html>`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, bodyText)
+		fmt.Fprint(w, bodyText) //nolint:errcheck
 	}))
 	defer server.Close()
 
@@ -954,7 +954,7 @@ func TestNetworkCapture_Include_ResponseBody_StopDrainsGoroutines(t *testing.T) 
 	const bodyText = `{"drain":"test"}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, bodyText)
+		fmt.Fprint(w, bodyText) //nolint:errcheck
 	}))
 	defer server.Close()
 
@@ -989,7 +989,7 @@ func TestNetworkCapture_Include_ResponseBody_HARContentSize(t *testing.T) {
 	const bodyText = `{"size":"check"}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, bodyText)
+		fmt.Fprint(w, bodyText) //nolint:errcheck
 	}))
 	defer server.Close()
 

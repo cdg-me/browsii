@@ -7,11 +7,12 @@ import (
 	"os"
 	"sync"
 
-	"github.com/cdg-me/browsii/internal/client"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 	"github.com/tetratelabs/wazero/sys"
+
+	"github.com/cdg-me/browsii/internal/client"
 )
 
 const ExpectedSDKVersion = 1
@@ -36,7 +37,7 @@ func (r *Runtime) Run(ctx context.Context, wasmBytes []byte) int {
 	wCtx := context.Background()
 
 	wz := wazero.NewRuntime(wCtx)
-	defer wz.Close(wCtx)
+	defer wz.Close(wCtx) //nolint:errcheck
 
 	// Instantiate WASI for standard I/O and fundamental libc requirements
 	wasi_snapshot_preview1.MustInstantiate(wCtx, wz)
@@ -59,7 +60,7 @@ func (r *Runtime) Run(ctx context.Context, wasmBytes []byte) int {
 	defer cancelSSE()
 
 	go func() {
-		client.SubscribeToEvents(ctxSSE, r.daemonPort, func(e client.StreamEvent) {
+		client.SubscribeToEvents(ctxSSE, r.daemonPort, func(e client.StreamEvent) { //nolint:errcheck
 			r.eventMu.Lock()
 			r.eventBuffer = append(r.eventBuffer, e)
 			r.eventMu.Unlock()
@@ -164,6 +165,6 @@ func (r *Runtime) flushEvents(ctx context.Context, m api.Module) {
 		m.Memory().Write(ptr, b)
 
 		// Fire the callback
-		dispatchFn.Call(ctx, uint64(ptr), uint64(len(b)))
+		dispatchFn.Call(ctx, uint64(ptr), uint64(len(b))) //nolint:errcheck
 	}
 }

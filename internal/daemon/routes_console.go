@@ -27,7 +27,7 @@ func (s *Server) handleConsoleCaptureStart(w http.ResponseWriter, r *http.Reques
 		Format string `json:"format"`
 	}
 	// Ignore decode errors — body is optional; defaults are all tabs, all levels, no output file.
-	json.NewDecoder(r.Body).Decode(&req)
+	json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck
 
 	// Resolve the tab alias to an integer index.
 	var activeID proto.TargetTargetID
@@ -92,7 +92,7 @@ func (s *Server) handleConsoleCaptureStop(w http.ResponseWriter, r *http.Request
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
 			"path":  outputPath,
 			"count": len(entries),
 		})

@@ -19,8 +19,8 @@ func TestProfilePersistence(t *testing.T) {
 	defer server.Close()
 
 	profileDir := filepath.Join(os.TempDir(), "browsii-test-profile")
-	os.RemoveAll(profileDir) // Ensure clean start
-	defer os.RemoveAll(profileDir)
+	os.RemoveAll(profileDir)       //nolint:errcheck // Ensure clean start
+	defer os.RemoveAll(profileDir) //nolint:errcheck
 
 	// Session 1: Set a cookie, then close gracefully
 	l1 := newLauncher().UserDataDir(profileDir).Headless(true)

@@ -23,7 +23,7 @@ var installRuntimesCmd = &cobra.Command{
 		targetDir := filepath.Join(home, ".browsii", "sdk")
 
 		// Force clean the directory to ensure modified embed files aren't quietly skipped
-		os.RemoveAll(targetDir)
+		os.RemoveAll(targetDir) //nolint:errcheck
 
 		if err := os.MkdirAll(targetDir, 0755); err != nil {
 			fmt.Printf("Failed to create sdks dir: %v\n", err)
@@ -57,7 +57,7 @@ var installRuntimesCmd = &cobra.Command{
 		// Also generate an immediate dummy go.mod for the sdk folder itself so the replacer works seamlessly
 		sdkModPath := filepath.Join(targetDir, "go", "go.mod")
 		if _, err := os.Stat(sdkModPath); os.IsNotExist(err) {
-			os.WriteFile(sdkModPath, []byte("module browsii/sdk\n\ngo 1.22\n"), 0644)
+			os.WriteFile(sdkModPath, []byte("module browsii/sdk\n\ngo 1.22\n"), 0644) //nolint:errcheck
 		}
 
 		fmt.Printf("Successfully installed Reference SDKs to: %s\n", targetDir)

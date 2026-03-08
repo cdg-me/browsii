@@ -47,7 +47,7 @@ func TestSSEBroadcastAndBackpressure(t *testing.T) {
 			case event := <-clientChan:
 				time.Sleep(50 * time.Millisecond) // Simulate a slow client to allow the buffer to fill
 				data, _ := json.Marshal(event)
-				w.Write([]byte("data: " + string(data) + "\n\n"))
+				w.Write([]byte("data: " + string(data) + "\n\n")) //nolint:errcheck
 				flusher.Flush()
 			}
 		}
@@ -65,7 +65,7 @@ func TestSSEBroadcastAndBackpressure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to connect to SSE: %v", err)
 	}
-	defer clientResp.Body.Close()
+	defer clientResp.Body.Close() //nolint:errcheck
 
 	// 4. Force an overflow by sending 4 events into a capacity 2 channel
 	s.broadcastEvent(StreamEvent{Type: EventNetworkRequest, Payload: "event 1"})

@@ -16,7 +16,7 @@ func (s *Server) Stop() {
 		log.Println("Browser closed.")
 	}
 	if s.server != nil {
-		s.server.Shutdown(context.Background())
+		s.server.Shutdown(context.Background()) //nolint:errcheck
 		log.Println("HTTP server shutdown.")
 	}
 }

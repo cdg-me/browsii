@@ -48,8 +48,8 @@ type capturedRequest struct {
 	// requestTime is CDP ResourceTiming.RequestTime (seconds, monotonic reference).
 	// receiveHeadersEnd is CDP ResourceTiming.ReceiveHeadersEnd (ms offset from requestTime).
 	// Both are populated by the NetworkResponseReceived handler when response-timing is active.
-	requestTime        float64
-	receiveHeadersEnd  float64
+	requestTime       float64
+	receiveHeadersEnd float64
 }
 
 // capturedInitiator describes what triggered a network request.

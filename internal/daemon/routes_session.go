@@ -58,7 +58,7 @@ func (s *Server) handleSessionSave(w http.ResponseWriter, r *http.Request) {
 	// Write to ~/.browsii/sessions/<name>.json
 	homeDir, _ := os.UserHomeDir()
 	sessDir := filepath.Join(homeDir, ".browsii", "sessions")
-	os.MkdirAll(sessDir, 0755)
+	os.MkdirAll(sessDir, 0755) //nolint:errcheck
 
 	data, _ := json.MarshalIndent(session, "", "  ")
 	if err := os.WriteFile(filepath.Join(sessDir, req.Name+".json"), data, 0644); err != nil {
@@ -75,7 +75,7 @@ func (s *Server) handleSessionNew(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck
 
 	// Open a blank page first (so browser always has at least one)
 	blank := s.browser.MustPage("about:blank").MustWaitLoad()
@@ -168,7 +168,7 @@ func (s *Server) handleSessionList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// No sessions directory yet — return empty
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, "[]")
+		fmt.Fprint(w, "[]") //nolint:errcheck
 		return
 	}
 
@@ -191,7 +191,7 @@ func (s *Server) handleSessionList(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAction("session_list", nil)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(sessions)
+	json.NewEncoder(w).Encode(sessions) //nolint:errcheck
 }
 
 // /session/delete endpoint — removes a saved session

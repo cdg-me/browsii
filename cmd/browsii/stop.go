@@ -17,13 +17,13 @@ func init() {
 			url := fmt.Sprintf("http://127.0.0.1:%d/shutdown", port)
 			client := &http.Client{Timeout: 2 * time.Second}
 
-			resp, err := client.Get(url)
+			resp, err := client.Get(url) //nolint:noctx
 			if err != nil {
 				fmt.Printf("Error stopping daemon on port %d: %v\n", port, err)
 				fmt.Println("Is it running?")
 				return
 			}
-			defer resp.Body.Close()
+			defer resp.Body.Close() //nolint:errcheck
 
 			if resp.StatusCode == http.StatusOK {
 				fmt.Println("Daemon gracefully shut down.")

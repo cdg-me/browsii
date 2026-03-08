@@ -48,7 +48,7 @@ func compileOrLoad(input string) ([]byte, error) {
 	if err := os.MkdirAll(buildDir, 0755); err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(buildDir)
+	defer os.RemoveAll(buildDir) //nolint:errcheck
 
 	scriptBytes, err := os.ReadFile(input)
 	if err != nil {
@@ -67,7 +67,7 @@ func compileOrLoad(input string) ([]byte, error) {
 	}
 
 	outWasm := filepath.Join(buildDir, "out.wasm")
-	c := exec.Command("tinygo", "build", "-o", outWasm, "-target", "wasip1", ".")
+	c := exec.Command("tinygo", "build", "-o", outWasm, "-target", "wasip1", ".") //nolint:noctx
 	c.Dir = buildDir
 	c.Stdout = os.Stderr
 	c.Stderr = os.Stderr

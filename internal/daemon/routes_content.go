@@ -24,7 +24,7 @@ func (s *Server) handleScrape(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Format string `json:"format"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck
 	if req.Format == "" {
 		req.Format = "html"
 	}
@@ -39,7 +39,7 @@ func (s *Server) handleScrape(w http.ResponseWriter, r *http.Request) {
 	case "text":
 		result := page.MustEval(`() => document.body.innerText`)
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, result.Str())
+		fmt.Fprint(w, result.Str()) //nolint:errcheck
 	case "markdown":
 		// Convert HTML to markdown via JS in the browser
 		result := page.MustEval(`() => {
@@ -87,11 +87,11 @@ func (s *Server) handleScrape(w http.ResponseWriter, r *http.Request) {
 			return htmlToMd(document.body).trim();
 		}`)
 		w.Header().Set("Content-Type", "text/plain")
-		fmt.Fprint(w, result.Str())
+		fmt.Fprint(w, result.Str()) //nolint:errcheck
 	default: // html
 		html := page.MustHTML()
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, html)
+		fmt.Fprint(w, html) //nolint:errcheck
 	}
 	s.recordAction("scrape", map[string]interface{}{"format": req.Format})
 }
@@ -101,7 +101,7 @@ func (s *Server) handleLinks(w http.ResponseWriter, r *http.Request) {
 		Pattern string `json:"pattern"`
 	}
 	// Pattern is optional, ignore decode errors for GET-like usage
-	json.NewDecoder(r.Body).Decode(&req)
+	json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck
 
 	page := s.activePage()
 	if page == nil {
@@ -132,7 +132,7 @@ func (s *Server) handleLinks(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAction("links", map[string]interface{}{"pattern": req.Pattern})
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(links)
+	json.NewEncoder(w).Encode(links) //nolint:errcheck
 }
 
 func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +156,7 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 		// Element screenshot
 		el := page.MustElement(req.Element)
 		data, _ := el.Screenshot(proto.PageCaptureScreenshotFormatPng, 0)
-		os.WriteFile(req.Filename, data, 0644)
+		os.WriteFile(req.Filename, data, 0644) //nolint:errcheck
 	} else if req.FullPage {
 		// Full page screenshot
 		page.MustScreenshotFullPage(req.Filename)
@@ -236,7 +236,7 @@ func (s *Server) handleJS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.recordAction("js", map[string]interface{}{"script": req.Script})
-	w.Write(jsonBytes)
+	w.Write(jsonBytes) //nolint:errcheck
 }
 
 func (s *Server) handleCookies(w http.ResponseWriter, r *http.Request) {
@@ -254,5 +254,5 @@ func (s *Server) handleCookies(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAction("cookies", nil)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(cookies)
+	json.NewEncoder(w).Encode(cookies) //nolint:errcheck
 }

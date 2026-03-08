@@ -19,11 +19,11 @@ func (s *Server) registerCoreRoutes(mux *http.ServeMux) {
 // Chrome process tree without requiring any daemon-startup plumbing.
 func (s *Server) handleDebugPID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"pid": os.Getpid()})
+	json.NewEncoder(w).Encode(map[string]int{"pid": os.Getpid()}) //nolint:errcheck
 }
 
 func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "pong")
+	fmt.Fprintln(w, "pong") //nolint:errcheck
 }
 
 func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
@@ -64,14 +64,14 @@ func (s *Server) handleEventsStream(w http.ResponseWriter, r *http.Request) {
 			return // Client disconnected
 		case event := <-clientChan:
 			data, _ := json.Marshal(event)
-			fmt.Fprintf(w, "data: %s\n\n", string(data))
+			fmt.Fprintf(w, "data: %s\n\n", string(data)) //nolint:errcheck
 			flusher.Flush()
 		}
 	}
 }
 
 func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "shutting down")
+	fmt.Fprintln(w, "shutting down") //nolint:errcheck
 	// We trigger the shutdown in a goroutine so the HTTP response completes
 	go func() {
 		s.Stop()

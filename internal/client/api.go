@@ -26,7 +26,7 @@ func SendCommand(port int, endpoint string, payload interface{}) ([]byte, error)
 		reqBody = bytes.NewBuffer(jsonData)
 	}
 
-	req, err := http.NewRequest("POST", url, reqBody)
+	req, err := http.NewRequest("POST", url, reqBody) //nolint:noctx
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +37,7 @@ func SendCommand(port int, endpoint string, payload interface{}) ([]byte, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon on port %d: %w", port, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -74,7 +74,7 @@ func SubscribeToEvents(ctx context.Context, port int, onEvent func(StreamEvent))
 	}
 
 	go func() {
-		defer resp.Body.Close()
+		defer resp.Body.Close() //nolint:errcheck
 		scanner := bufio.NewScanner(resp.Body)
 
 		for scanner.Scan() {

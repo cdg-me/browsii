@@ -38,7 +38,7 @@ func init() {
 
 			// 1. Check if it's already running
 			client := &http.Client{Timeout: 1 * time.Second}
-			resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/ping", port))
+			resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/ping", port)) //nolint:noctx
 			if err == nil && resp.StatusCode == 200 {
 				fmt.Printf("Daemon is already running on port %d\n", port)
 				return
@@ -50,7 +50,7 @@ func init() {
 				log.Fatalf("Failed to get executable path: %v", err)
 			}
 
-			bgCmd := exec.Command(executable, "daemon", "--port", fmt.Sprintf("%d", port), "--mode", mode)
+			bgCmd := exec.Command(executable, "daemon", "--port", fmt.Sprintf("%d", port), "--mode", mode) //nolint:noctx
 
 			// Detach it from the current terminal
 			if err := bgCmd.Start(); err != nil {
@@ -62,7 +62,7 @@ func init() {
 			// Polling wait to ensure it comes up before we return control
 			for i := 0; i < 10; i++ {
 				time.Sleep(500 * time.Millisecond)
-				r, e := client.Get(fmt.Sprintf("http://127.0.0.1:%d/ping", port))
+				r, e := client.Get(fmt.Sprintf("http://127.0.0.1:%d/ping", port)) //nolint:noctx
 				if e == nil && r.StatusCode == 200 {
 					return
 				}

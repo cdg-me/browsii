@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/cdg-me/browsii/internal/client"
 	"github.com/spf13/cobra"
+
+	"github.com/cdg-me/browsii/internal/client"
 )
 
 var (

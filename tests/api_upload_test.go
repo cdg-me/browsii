@@ -17,27 +17,27 @@ func TestUpload_SetsFileInput(t *testing.T) {
 	// Create a temp file to upload
 	tmpFile, err := os.CreateTemp("", "upload_test_*.txt")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	tmpFile.WriteString("hello from upload test")
-	tmpFile.Close()
+	defer os.Remove(tmpFile.Name()) //nolint:errcheck
+	tmpFile.WriteString("hello from upload test") //nolint:errcheck
+	tmpFile.Close()                               //nolint:errcheck
 
 	// Server with a file input form that reads the filename via JS
 	uploadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
 			// Handle multipart upload
-			r.ParseMultipartForm(10 << 20)
+			r.ParseMultipartForm(10 << 20) //nolint:errcheck
 			file, header, err := r.FormFile("file")
 			if err != nil {
 				http.Error(w, err.Error(), 400)
 				return
 			}
-			defer file.Close()
+			defer file.Close() //nolint:errcheck
 			body, _ := io.ReadAll(file)
-			fmt.Fprintf(w, "Received: %s (%d bytes)", header.Filename, len(body))
+			fmt.Fprintf(w, "Received: %s (%d bytes)", header.Filename, len(body)) //nolint:errcheck
 			return
 		}
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 			<form id="uploadForm" enctype="multipart/form-data">
 				<input type="file" id="fileInput" name="file">
 				<div id="result">no file</div>
@@ -68,7 +68,7 @@ func TestNavigate_WaitUntil(t *testing.T) {
 	// Server that loads slowly (delayed resource)
 	slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><head><title>Wait Test</title></head><body>
+		_, _ = fmt.Fprint(w, `<html><head><title>Wait Test</title></head><body>
 			<div id="content">Loaded</div>
 			<script>
 				var loaded = false;

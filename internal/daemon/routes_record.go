@@ -59,11 +59,11 @@ func (s *Server) handleRecordStop(w http.ResponseWriter, r *http.Request) {
 	var recFile string
 	if filepath.IsAbs(name) {
 		recFile = name
-		os.MkdirAll(filepath.Dir(recFile), 0755)
+		os.MkdirAll(filepath.Dir(recFile), 0755) //nolint:errcheck
 	} else {
 		homeDir, _ := os.UserHomeDir()
 		recDir := filepath.Join(homeDir, ".browsii", "recordings")
-		os.MkdirAll(recDir, 0755)
+		os.MkdirAll(recDir, 0755) //nolint:errcheck
 		recFile = filepath.Join(recDir, name+".json")
 	}
 
@@ -74,7 +74,7 @@ func (s *Server) handleRecordStop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]interface{}{ //nolint:errcheck
 		"name":   name,
 		"events": len(events),
 	})
@@ -190,7 +190,7 @@ func (s *Server) handleRecordReplay(w http.ResponseWriter, r *http.Request) {
 				}
 			case "mouse_doubleclick":
 				if sel, ok := event.Params["selector"].(string); ok {
-					js := fmt.Sprintf(`(sel) => { document.querySelector(sel).dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true})); }`)
+					js := `(sel) => { document.querySelector(sel).dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true})); }`
 					page.MustEval(js, sel)
 				}
 			case "upload":
@@ -211,7 +211,7 @@ func (s *Server) handleRecordReplay(w http.ResponseWriter, r *http.Request) {
 				fullPage, _ := event.Params["fullPage"].(bool)
 				if el != "" {
 					data, _ := page.MustElement(el).Screenshot(proto.PageCaptureScreenshotFormatPng, 0)
-					os.WriteFile(filename, data, 0644)
+					os.WriteFile(filename, data, 0644) //nolint:errcheck
 				} else if fullPage {
 					page.MustScreenshotFullPage(filename)
 				} else {
@@ -221,7 +221,7 @@ func (s *Server) handleRecordReplay(w http.ResponseWriter, r *http.Request) {
 				if filename, ok := event.Params["filename"].(string); ok {
 					pdfData, _ := page.PDF(&proto.PagePrintToPDF{})
 					data, _ := io.ReadAll(pdfData)
-					os.WriteFile(filename, data, 0644)
+					os.WriteFile(filename, data, 0644) //nolint:errcheck
 				}
 			case "js":
 				if script, ok := event.Params["script"].(string); ok {
@@ -231,7 +231,7 @@ func (s *Server) handleRecordReplay(w http.ResponseWriter, r *http.Request) {
 				lat, _ := event.Params["latency"].(float64)
 				dl, _ := event.Params["download"].(float64)
 				up, _ := event.Params["upload"].(float64)
-				proto.NetworkEmulateNetworkConditions{Offline: false, Latency: lat, DownloadThroughput: dl, UploadThroughput: up}.Call(page)
+				proto.NetworkEmulateNetworkConditions{Offline: false, Latency: lat, DownloadThroughput: dl, UploadThroughput: up}.Call(page) //nolint:errcheck
 			case "network_mock":
 				pat, _ := event.Params["pattern"].(string)
 				body, _ := event.Params["body"].(string)
@@ -320,7 +320,7 @@ func (s *Server) handleRecordList(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(recDir)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, "[]")
+		fmt.Fprint(w, "[]") //nolint:errcheck
 		return
 	}
 
@@ -342,7 +342,7 @@ func (s *Server) handleRecordList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(recordings)
+	json.NewEncoder(w).Encode(recordings) //nolint:errcheck
 }
 
 // /record/delete endpoint — removes a recording

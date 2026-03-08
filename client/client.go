@@ -84,9 +84,9 @@ func (c *Client) waitReady(errCh <-chan error) error {
 			return err
 		default:
 		}
-		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/ping", c.port))
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/ping", c.port)) //nolint:noctx
 		if err == nil {
-			resp.Body.Close()
+			resp.Body.Close() //nolint:errcheck
 			if resp.StatusCode == http.StatusOK {
 				return nil
 			}
@@ -98,10 +98,10 @@ func (c *Client) waitReady(errCh <-chan error) error {
 
 // freePort asks the OS for an available TCP port.
 func freePort() (int, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := net.Listen("tcp", "127.0.0.1:0") //nolint:noctx
 	if err != nil {
 		return 0, err
 	}
-	defer l.Close()
+	defer l.Close() //nolint:errcheck
 	return l.Addr().(*net.TCPAddr).Port, nil
 }

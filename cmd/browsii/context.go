@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/cdg-me/browsii/internal/client"
 	"github.com/spf13/cobra"
+
+	"github.com/cdg-me/browsii/internal/client"
 )
 
 var contextName string
@@ -30,7 +31,7 @@ func init() {
 		},
 	}
 	createCmd.Flags().StringVar(&contextName, "name", "", "Name for the new context")
-	createCmd.MarkFlagRequired("name")
+	createCmd.MarkFlagRequired("name") //nolint:errcheck
 
 	switchCmd := &cobra.Command{
 		Use:   "switch <name>",

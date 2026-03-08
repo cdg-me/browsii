@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cdg-me/browsii/internal/client"
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+
+	"github.com/cdg-me/browsii/internal/client"
 )
 
 // instantiateHostExports registers the strongly-typed ABI methods into the `browsii` WASM module namespace
@@ -172,6 +173,6 @@ func (r *Runtime) exportSetResult(ctx context.Context, m api.Module, ptr, length
 
 	// Compact it to ensure it's a single parseable line
 	buffer := new(bytes.Buffer)
-	json.Compact(buffer, js)
+	json.Compact(buffer, js) //nolint:errcheck
 	fmt.Println(buffer.String())
 }

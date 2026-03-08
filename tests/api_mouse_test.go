@@ -13,7 +13,7 @@ func TestMouseMove_UpdatesPosition(t *testing.T) {
 	// Create a page with mousemove listener that records coordinates
 	moveServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 			<div id="coords">0,0</div>
 			<script>
 				document.addEventListener('mousemove', function(e) {
@@ -39,7 +39,7 @@ func TestMouseDrag_RecordsPath(t *testing.T) {
 	// Create a canvas-like page that records mousedown, mousemove, mouseup events
 	dragServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 			<div id="canvas" style="width:500px;height:500px;background:#eee;"></div>
 			<div id="events">0</div>
 			<div id="sequence"></div>
@@ -87,7 +87,7 @@ func TestMouseDrag_RecordsPath(t *testing.T) {
 func TestMouseRightClick_TriggersContextMenu(t *testing.T) {
 	rightClickServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 			<div id="target" style="width:100px;height:100px;background:blue;">Right-click me</div>
 			<div id="result">waiting</div>
 			<script>
@@ -114,7 +114,7 @@ func TestMouseRightClick_TriggersContextMenu(t *testing.T) {
 func TestMouseDoubleClick_TriggersEvent(t *testing.T) {
 	dblClickServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 			<div id="target" style="width:100px;height:100px;background:green;">Double-click me</div>
 			<div id="result">waiting</div>
 			<script>

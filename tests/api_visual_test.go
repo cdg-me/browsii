@@ -20,7 +20,7 @@ func TestScreenshot_CreatesFile(t *testing.T) {
 	runCLI(t, bin, port, "navigate", server.URL)
 
 	screenshotPath := filepath.Join(os.TempDir(), "test_screenshot_api.png")
-	defer os.Remove(screenshotPath)
+	defer os.Remove(screenshotPath) //nolint:errcheck
 
 	runCLI(t, bin, port, "screenshot", screenshotPath)
 
@@ -43,7 +43,7 @@ func TestScreenshot_TargetsActivePage(t *testing.T) {
 	runCLI(t, bin, port, "tab", "new", serverB.URL)
 
 	screenshotPath := filepath.Join(os.TempDir(), "test_screenshot_tab.png")
-	defer os.Remove(screenshotPath)
+	defer os.Remove(screenshotPath) //nolint:errcheck
 
 	runCLI(t, bin, port, "screenshot", screenshotPath)
 
@@ -64,7 +64,7 @@ func TestScreenshot_Element(t *testing.T) {
 	runCLI(t, bin, port, "navigate", server.URL)
 
 	elementPath := filepath.Join(os.TempDir(), "test_screenshot_element.png")
-	defer os.Remove(elementPath)
+	defer os.Remove(elementPath) //nolint:errcheck
 
 	runCLI(t, bin, port, "screenshot", elementPath, "--element", "#target-box")
 
@@ -84,7 +84,7 @@ func TestScreenshot_FullPage(t *testing.T) {
 	runCLI(t, bin, port, "navigate", tallServer.URL)
 
 	fullPath := filepath.Join(os.TempDir(), "test_screenshot_fullpage.png")
-	defer os.Remove(fullPath)
+	defer os.Remove(fullPath) //nolint:errcheck
 
 	runCLI(t, bin, port, "screenshot", fullPath, "--full-page")
 
@@ -104,7 +104,7 @@ func TestPDF_CreatesFile(t *testing.T) {
 	runCLI(t, bin, port, "navigate", server.URL)
 
 	pdfPath := filepath.Join(os.TempDir(), "test_output.pdf")
-	defer os.Remove(pdfPath)
+	defer os.Remove(pdfPath) //nolint:errcheck
 
 	runCLI(t, bin, port, "pdf", pdfPath)
 

@@ -72,8 +72,8 @@ type Server struct {
 
 	// captureFormat is the output format for capture results ("" = json).
 	captureFormat string
-	contexts     map[string]*contextState // named browser contexts
-	activeCtx    string                   // current active context name ("" = default)
+	contexts      map[string]*contextState // named browser contexts
+	activeCtx     string                   // current active context name ("" = default)
 	// Recording state
 	recording    bool
 	recordName   string
@@ -140,7 +140,6 @@ func (s *Server) recordAction(action string, params map[string]interface{}) {
 		Action: action,
 		Params: params,
 	})
-	return
 }
 
 // NewServer creates a new Daemon configuration.

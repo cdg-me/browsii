@@ -60,40 +60,40 @@ func TestParseKeyCombo(t *testing.T) {
 		want  []input.Key
 	}{
 		// Named special keys
-		{"Enter",     "Enter",     []input.Key{input.Enter}},
-		{"enter lc",  "enter",     []input.Key{input.Enter}},
-		{"Escape",    "Escape",    []input.Key{input.Escape}},
-		{"Tab",       "Tab",       []input.Key{input.Tab}},
+		{"Enter", "Enter", []input.Key{input.Enter}},
+		{"enter lc", "enter", []input.Key{input.Enter}},
+		{"Escape", "Escape", []input.Key{input.Escape}},
+		{"Tab", "Tab", []input.Key{input.Tab}},
 		{"Backspace", "Backspace", []input.Key{input.Backspace}},
-		{"Delete",    "Delete",    []input.Key{input.Delete}},
-		{"Space",     "Space",     []input.Key{input.Space}},
-		{"ArrowUp",   "ArrowUp",   []input.Key{input.ArrowUp}},
-		{"ArrowDown",  "ArrowDown",  []input.Key{input.ArrowDown}},
-		{"ArrowLeft",  "ArrowLeft",  []input.Key{input.ArrowLeft}},
+		{"Delete", "Delete", []input.Key{input.Delete}},
+		{"Space", "Space", []input.Key{input.Space}},
+		{"ArrowUp", "ArrowUp", []input.Key{input.ArrowUp}},
+		{"ArrowDown", "ArrowDown", []input.Key{input.ArrowDown}},
+		{"ArrowLeft", "ArrowLeft", []input.Key{input.ArrowLeft}},
 		{"ArrowRight", "ArrowRight", []input.Key{input.ArrowRight}},
-		{"Home",     "Home",     []input.Key{input.Home}},
-		{"End",      "End",      []input.Key{input.End}},
-		{"PageUp",   "PageUp",   []input.Key{input.PageUp}},
+		{"Home", "Home", []input.Key{input.Home}},
+		{"End", "End", []input.Key{input.End}},
+		{"PageUp", "PageUp", []input.Key{input.PageUp}},
 		{"PageDown", "PageDown", []input.Key{input.PageDown}},
 
 		// Single character keys (case-insensitive lookup)
 		{"lowercase a", "a", []input.Key{input.KeyA}},
 		{"uppercase A", "A", []input.Key{input.KeyA}},
-		{"digit 0",     "0", []input.Key{input.Digit0}},
-		{"digit 9",     "9", []input.Key{input.Digit9}},
+		{"digit 0", "0", []input.Key{input.Digit0}},
+		{"digit 9", "9", []input.Key{input.Digit9}},
 
 		// Key combos
-		{"Control+a",       "Control+a",       []input.Key{input.ControlLeft, input.KeyA}},
-		{"Ctrl+a",          "Ctrl+a",          []input.Key{input.ControlLeft, input.KeyA}},
-		{"Shift+a",         "Shift+a",         []input.Key{input.ShiftLeft, input.KeyA}},
-		{"Meta+a",          "Meta+a",          []input.Key{input.MetaLeft, input.KeyA}},
-		{"Command+a",       "Command+a",       []input.Key{input.MetaLeft, input.KeyA}},
-		{"Alt+Tab",         "Alt+Tab",         []input.Key{input.AltLeft, input.Tab}},
+		{"Control+a", "Control+a", []input.Key{input.ControlLeft, input.KeyA}},
+		{"Ctrl+a", "Ctrl+a", []input.Key{input.ControlLeft, input.KeyA}},
+		{"Shift+a", "Shift+a", []input.Key{input.ShiftLeft, input.KeyA}},
+		{"Meta+a", "Meta+a", []input.Key{input.MetaLeft, input.KeyA}},
+		{"Command+a", "Command+a", []input.Key{input.MetaLeft, input.KeyA}},
+		{"Alt+Tab", "Alt+Tab", []input.Key{input.AltLeft, input.Tab}},
 		{"Control+Shift+a", "Control+Shift+a", []input.Key{input.ControlLeft, input.ShiftLeft, input.KeyA}},
 
 		// Unknown / unsupported produce nil
 		{"unknown F12", "F12", nil},
-		{"empty string", "",  nil},
+		{"empty string", "", nil},
 	}
 
 	for _, tc := range cases {
@@ -116,24 +116,24 @@ func TestMatchesLevelFilter(t *testing.T) {
 		want   bool
 	}{
 		// Empty filter always passes
-		{"empty filter log",   "log",   "",           true},
-		{"empty filter error", "error", "",           true},
+		{"empty filter log", "log", "", true},
+		{"empty filter error", "error", "", true},
 
 		// Exact single match
-		{"exact match",   "error", "error",      true},
-		{"no match",      "log",   "error",      false},
+		{"exact match", "error", "error", true},
+		{"no match", "log", "error", false},
 
 		// Comma-separated
-		{"multi first",   "error", "error,warn", true},
-		{"multi second",  "warn",  "error,warn", true},
-		{"multi miss",    "log",   "error,warn", false},
-		{"info in list",  "info",  "info,debug", true},
+		{"multi first", "error", "error,warn", true},
+		{"multi second", "warn", "error,warn", true},
+		{"multi miss", "log", "error,warn", false},
+		{"info in list", "info", "info,debug", true},
 		{"debug in list", "debug", "info,debug", true},
 
 		// Whitespace trimming around filter entries
-		{"space before", "warn", " warn",        true},
-		{"space after",  "warn", "warn ",        true},
-		{"space around", "warn", "error, warn",  true},
+		{"space before", "warn", " warn", true},
+		{"space after", "warn", "warn ", true},
+		{"space around", "warn", "error, warn", true},
 	}
 
 	for _, tc := range cases {
@@ -155,10 +155,10 @@ func TestNormalizeConsoleLevel(t *testing.T) {
 		want  string
 	}{
 		{proto.RuntimeConsoleAPICalledTypeWarning, "warn"},
-		{proto.RuntimeConsoleAPICalledTypeLog,     "log"},
-		{proto.RuntimeConsoleAPICalledTypeError,   "error"},
-		{proto.RuntimeConsoleAPICalledTypeInfo,    "info"},
-		{proto.RuntimeConsoleAPICalledTypeDebug,   "debug"},
+		{proto.RuntimeConsoleAPICalledTypeLog, "log"},
+		{proto.RuntimeConsoleAPICalledTypeError, "error"},
+		{proto.RuntimeConsoleAPICalledTypeInfo, "info"},
+		{proto.RuntimeConsoleAPICalledTypeDebug, "debug"},
 	}
 
 	for _, tc := range cases {
@@ -186,13 +186,13 @@ func TestResolveTabAlias(t *testing.T) {
 		want     int
 	}{
 		// Empty and "all" → -1 (all tabs)
-		{"empty alias",  "",    "", -1},
+		{"empty alias", "", "", -1},
 		{"explicit all", "all", "", -1},
 
 		// "active" with a valid active page ID → its index
-		{"active = first",  "active", idA, 0},
+		{"active = first", "active", idA, 0},
 		{"active = second", "active", idB, 1},
-		{"active = third",  "active", idC, 2},
+		{"active = third", "active", idC, 2},
 
 		// "active" with no active page → -1
 		{"active no page", "active", "", -1},
@@ -244,7 +244,7 @@ func TestDecodeBody(t *testing.T) {
 
 	t.Run("valid JSON populates struct", func(t *testing.T) {
 		body := strings.NewReader(`{"name":"alice"}`)
-		r := httptest.NewRequest(http.MethodPost, "/", body)
+		r := httptest.NewRequest(http.MethodPost, "/", body) //nolint:noctx
 		w := httptest.NewRecorder()
 		var p payload
 		ok := decodeBody(w, r, &p)
@@ -257,7 +257,7 @@ func TestDecodeBody(t *testing.T) {
 	})
 
 	t.Run("empty body returns true with zero value", func(t *testing.T) {
-		r := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(nil))
+		r := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(nil)) //nolint:noctx
 		w := httptest.NewRecorder()
 		var p payload
 		ok := decodeBody(w, r, &p)
@@ -271,7 +271,7 @@ func TestDecodeBody(t *testing.T) {
 
 	t.Run("malformed JSON returns false and 400", func(t *testing.T) {
 		body := strings.NewReader(`not json`)
-		r := httptest.NewRequest(http.MethodPost, "/", body)
+		r := httptest.NewRequest(http.MethodPost, "/", body) //nolint:noctx
 		w := httptest.NewRecorder()
 		var p payload
 		ok := decodeBody(w, r, &p)
@@ -291,7 +291,7 @@ func TestDecodeBodyRequired(t *testing.T) {
 
 	t.Run("valid JSON populates struct", func(t *testing.T) {
 		body := strings.NewReader(`{"name":"bob"}`)
-		r := httptest.NewRequest(http.MethodPost, "/", body)
+		r := httptest.NewRequest(http.MethodPost, "/", body) //nolint:noctx
 		w := httptest.NewRecorder()
 		var p payload
 		ok := decodeBodyRequired(w, r, &p)
@@ -304,7 +304,7 @@ func TestDecodeBodyRequired(t *testing.T) {
 	})
 
 	t.Run("empty body returns false and 400", func(t *testing.T) {
-		r := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(nil))
+		r := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(nil)) //nolint:noctx
 		w := httptest.NewRecorder()
 		var p payload
 		ok := decodeBodyRequired(w, r, &p)
@@ -318,7 +318,7 @@ func TestDecodeBodyRequired(t *testing.T) {
 
 	t.Run("malformed JSON returns false and 400", func(t *testing.T) {
 		body := strings.NewReader(`{bad`)
-		r := httptest.NewRequest(http.MethodPost, "/", body)
+		r := httptest.NewRequest(http.MethodPost, "/", body) //nolint:noctx
 		w := httptest.NewRecorder()
 		var p payload
 		ok := decodeBodyRequired(w, r, &p)

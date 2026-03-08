@@ -19,11 +19,11 @@ func TestWasm_NetworkEvents(t *testing.T) {
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/test.json" {
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"status":"ok"}`)
+			fmt.Fprint(w, `{"status":"ok"}`) //nolint:errcheck
 			return
 		}
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 			<script>
 				setTimeout(() => fetch('/test.json'), 500);
 			</script>
@@ -37,7 +37,7 @@ func TestWasm_NetworkEvents(t *testing.T) {
 
 	// Seed tab to prevent race conditions on very first launch
 	runCLI(t, bin, port, "navigate", "about:blank")
-	exec.Command(bin, "install-runtimes").Run()
+	exec.Command(bin, "install-runtimes").Run() //nolint:errcheck,noctx
 
 	scriptContent := fmt.Sprintf(`//go:build wasip1
 package main
@@ -100,7 +100,7 @@ func main() {
 func TestWasm_BasicNavigation(t *testing.T) {
 	apiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body><h1 id="target">Found Me</h1></body></html>`)
+		fmt.Fprint(w, `<html><body><h1 id="target">Found Me</h1></body></html>`) //nolint:errcheck
 	}))
 	defer apiServer.Close()
 
@@ -108,7 +108,7 @@ func TestWasm_BasicNavigation(t *testing.T) {
 	bin, cleanup := startDaemon(t, port)
 	defer cleanup()
 
-	exec.Command(bin, "install-runtimes").Run()
+	exec.Command(bin, "install-runtimes").Run() //nolint:errcheck,noctx
 
 	scriptContent := fmt.Sprintf(`//go:build wasip1
 package main
@@ -156,7 +156,7 @@ func TestWasm_NetworkEvents_ImmediateFetch(t *testing.T) {
 	defer cleanup()
 
 	runCLI(t, bin, port, "navigate", "about:blank")
-	exec.Command(bin, "install-runtimes").Run()
+	exec.Command(bin, "install-runtimes").Run() //nolint:errcheck,noctx
 
 	scriptContent := fmt.Sprintf(`//go:build wasip1
 package main
@@ -220,7 +220,7 @@ func TestWasm_NetworkEvents_NoDuplicates(t *testing.T) {
 	defer cleanup()
 
 	runCLI(t, bin, port, "navigate", "about:blank")
-	exec.Command(bin, "install-runtimes").Run()
+	exec.Command(bin, "install-runtimes").Run() //nolint:errcheck,noctx
 
 	scriptContent := fmt.Sprintf(`//go:build wasip1
 package main
@@ -293,7 +293,7 @@ func TestWasm_ConsoleEvents(t *testing.T) {
 	bin, cleanup := startDaemon(t, port)
 	defer cleanup()
 
-	exec.Command(bin, "install-runtimes").Run()
+	exec.Command(bin, "install-runtimes").Run() //nolint:errcheck,noctx
 
 	scriptContent := fmt.Sprintf(`//go:build wasip1
 package main

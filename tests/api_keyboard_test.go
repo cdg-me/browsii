@@ -12,7 +12,7 @@ func TestPress_SubmitsForm(t *testing.T) {
 	// Create a page with a form that sets a flag on submit
 	formServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<form id="myform" onsubmit="event.preventDefault(); document.getElementById('result').innerText = 'submitted';">
 				<input type="text" id="input1" autofocus>
 				<div id="result">waiting</div>
@@ -37,7 +37,7 @@ func TestPress_KeyCombo(t *testing.T) {
 	// Create a page that listens for Escape key
 	escServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<div id="result">waiting</div>
 			<script>
 				document.addEventListener('keydown', function(e) {
@@ -65,7 +65,7 @@ func TestHover_TriggersEvent(t *testing.T) {
 	// Create a page that changes text on hover
 	hoverServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body>
+		_, _ = w.Write([]byte(`<html><body>
 			<div id="hoverTarget" style="width:100px;height:100px;background:blue;">Hover me</div>
 			<div id="result">waiting</div>
 			<script>

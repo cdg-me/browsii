@@ -37,7 +37,7 @@ func (s *Server) handleNetworkCaptureStart(w http.ResponseWriter, r *http.Reques
 		Include []string `json:"include"`
 		Format  string   `json:"format"`
 	}
-	json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck — body is optional
+	json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck // body is optional
 
 	var activeID proto.TargetTargetID
 	if ap := s.activePage(); ap != nil {

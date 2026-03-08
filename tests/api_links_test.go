@@ -14,7 +14,7 @@ import (
 func TestGetLinks_ReturnsAllLinks(t *testing.T) {
 	linkServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 			<a href="https://example.com">Example</a>
 			<a href="https://google.com">Google</a>
 			<a href="https://github.com">GitHub</a>
@@ -45,7 +45,7 @@ func TestGetLinks_ReturnsAllLinks(t *testing.T) {
 func TestGetLinks_FiltersWithPattern(t *testing.T) {
 	linkServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, `<html><body>
+		_, _ = fmt.Fprint(w, `<html><body>
 			<a href="https://example.com/page1">Page 1</a>
 			<a href="https://example.com/page2">Page 2</a>
 			<a href="https://google.com/search">Google</a>
