@@ -8,8 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cdg-me/browsii/internal/wasm"
 	"github.com/spf13/cobra"
+
+	"github.com/cdg-me/browsii/internal/wasm"
 )
 
 var runCmd = &cobra.Command{

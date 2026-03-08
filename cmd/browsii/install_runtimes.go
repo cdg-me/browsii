@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/cdg-me/browsii/sdk"
 	"github.com/spf13/cobra"
+
+	"github.com/cdg-me/browsii/sdk"
 )
 
 var installRuntimesCmd = &cobra.Command{

@@ -3,8 +3,9 @@ package main
 import (
 	"fmt"
 
-	browsii "github.com/cdg-me/browsii"
 	"github.com/spf13/cobra"
+
+	browsii "github.com/cdg-me/browsii"
 )
 
 func init() {

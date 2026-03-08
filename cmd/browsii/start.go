@@ -8,8 +8,9 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/cdg-me/browsii/internal/daemon"
 	"github.com/spf13/cobra"
+
+	"github.com/cdg-me/browsii/internal/daemon"
 )
 
 var mode string
