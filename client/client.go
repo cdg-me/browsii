@@ -60,8 +60,23 @@ func Start(opts Options) (*Client, error) {
 	return c, nil
 }
 
+// Attach connects to an already-running daemon at the given port and returns a
+// Client that does not own the daemon lifecycle. Calling Stop on an attached
+// Client is a no-op; the daemon keeps running.
+func Attach(port int) (*Client, error) {
+	c := &Client{port: port}
+	if err := c.ping(); err != nil {
+		return nil, fmt.Errorf("client: no daemon responding at port %d: %w", port, err)
+	}
+	return c, nil
+}
+
 // Stop gracefully shuts down the in-process daemon.
+// It is a no-op when called on a Client created via Attach.
 func (c *Client) Stop() {
+	if c.server == nil {
+		return
+	}
 	c.server.Stop()
 }
 
@@ -76,6 +91,23 @@ func (c *Client) send(endpoint string, payload any) ([]byte, error) {
 	return iclient.SendCommand(c.port, endpoint, payload)
 }
 
+// ping issues a single GET /ping and returns nil on a 200 response.
+func (c *Client) ping() error {
+	req, err := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://127.0.0.1:%d/ping", c.port), nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // waitReady polls /ping until the daemon responds or times out.
 func (c *Client) waitReady(errCh <-chan error) error {
 	deadline := time.Now().Add(15 * time.Second)
@@ -85,16 +117,8 @@ func (c *Client) waitReady(errCh <-chan error) error {
 			return err
 		default:
 		}
-		req, err := http.NewRequestWithContext(context.Background(), "GET", fmt.Sprintf("http://127.0.0.1:%d/ping", c.port), nil)
-		if err != nil {
-			return err
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err == nil {
-			resp.Body.Close() //nolint:errcheck
-			if resp.StatusCode == http.StatusOK {
-				return nil
-			}
+		if err := c.ping(); err == nil {
+			return nil
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
