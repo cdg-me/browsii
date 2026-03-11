@@ -341,6 +341,24 @@ c.ContextSwitch("default")
 fmt.Printf("Daemon on port %d\n", c.Port())
 ```
 
+### Dev mode — iterating on Go client code
+
+Every `go run .` calls `client.Start()`, which cold-boots Chrome and loses all session state (cookies, login, tabs). To iterate without that:
+
+```sh
+# Start Chrome once, log in manually if needed
+browsii start --port 8000 --mode headful
+
+# Every iteration — attach to the running Chrome, run, exit
+browsii dev --port 8000 -- go run .
+```
+
+`browsii dev` sets `BROWSII_PORT=8000` in the subprocess environment. `client.Start()` sees it and calls `client.Attach()` instead of launching Chrome. No code changes needed. Chrome and its session persist across runs.
+
+`client.Stop()` is a no-op when attached — it does not kill the daemon.
+
+`--watch` re-runs the command on any `.go` file change. Useful if a human is watching a terminal; LLMs should just call `browsii dev -- go run .` directly each iteration.
+
 ---
 
 ## Key behaviours
