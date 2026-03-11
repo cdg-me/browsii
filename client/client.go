@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	iclient "github.com/cdg-me/browsii/internal/client"
@@ -31,7 +33,19 @@ type Client struct {
 
 // Start launches an in-process browser daemon and returns a connected Client.
 // Call Stop (or defer c.Stop()) when done.
+//
+// Dev mode: if the BROWSII_PORT environment variable is set, Start attaches to
+// an already-running daemon at that port instead of launching a new one. This
+// lets you iterate on Go client code without restarting Chrome on every run.
+// Stop is a no-op in this case — the daemon lifecycle is not owned.
 func Start(opts Options) (*Client, error) {
+	if envPort := os.Getenv("BROWSII_PORT"); envPort != "" {
+		p, err := strconv.Atoi(envPort)
+		if err != nil {
+			return nil, fmt.Errorf("client: invalid BROWSII_PORT %q: %w", envPort, err)
+		}
+		return Attach(p)
+	}
 	if opts.Port == 0 {
 		p, err := freePort()
 		if err != nil {
