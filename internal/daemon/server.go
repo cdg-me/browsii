@@ -138,6 +138,11 @@ type Server struct {
 	sseClients map[chan StreamEvent]struct{}
 	sseMu      sync.RWMutex
 
+	// snapshotRouter is the active browser-level hijack router installed by
+	// /snapshot/load. Replaced (old router stopped) on each new load.
+	// nil when no snapshot is active.
+	snapshotRouter *rod.HijackRouter
+
 	// inject js state
 	//
 	// injectJSGlobal holds entries registered with tab="" (all tabs). Every new
@@ -274,6 +279,7 @@ func (s *Server) Start() error {
 	s.registerRecordRoutes(mux)
 	s.registerContextRoutes(mux)
 	s.registerInjectRoutes(mux)
+	s.registerSnapshotRoutes(mux)
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),

@@ -361,6 +361,69 @@ browsii dev --port 8000 -- go run .
 
 ---
 
+## Snapshots — testing without a live site
+
+Record the real network responses once, replay them offline in every test run. No auth, no flakiness, no dependency on external sites.
+
+### Record
+
+```sh
+browsii network capture start --include response-headers,response-body --format har --output testdata/snap.har
+browsii navigate "https://example.com/page"
+browsii network capture stop
+```
+
+Or from the Go client:
+
+```go
+c.NetworkCaptureStart(client.NetworkCaptureOpts{
+    Include: []string{"response-headers", "response-body"},
+    Format:  "har",
+    Output:  "testdata/snap.har",
+})
+c.Navigate("https://example.com/page")
+c.NetworkCaptureStop()
+```
+
+### Replay
+
+```sh
+browsii snapshot load testdata/snap.har   # intercepts matching URLs on the active page
+browsii navigate "https://example.com/page"
+browsii scrape                             # returns recorded content, no network needed
+browsii snapshot clear                     # restore normal network behaviour
+```
+
+```go
+c.SnapshotLoad("testdata/snap.har")
+c.Navigate("https://example.com/page")
+text, _ := c.Scrape(client.Markdown)
+c.SnapshotClear()
+```
+
+URLs not present in the HAR pass through to the network unchanged — sub-resources from a CDN that weren't recorded will still be fetched live.
+
+The snapshot is scoped to the active page at load time. It persists until `snapshot clear` or the daemon restarts.
+
+### Typical test pattern
+
+```go
+func TestScrapeNotifications(t *testing.T) {
+    c, _ := client.Start(client.Options{Mode: "headless"})
+    defer c.Stop()
+
+    c.SnapshotLoad("testdata/github_notifications.har")
+    c.Navigate("https://github.com/notifications")
+
+    titles, _ := scrapeUnreadPRTitles(c)   // the function under test
+    assert.Equal(t, []string{"fix: race condition", "feat: dark mode"}, titles)
+}
+```
+
+To update the fixture, delete the HAR and re-record against the live site with a logged-in session.
+
+---
+
 ## Key behaviours
 
 **Daemon is stateful.** It holds the browser, tabs, and all capture buffers. Multiple CLI commands share state through the same daemon instance.

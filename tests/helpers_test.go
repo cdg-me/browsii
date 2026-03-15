@@ -48,15 +48,18 @@ func binPath(t *testing.T) string {
 func startDaemon(t *testing.T, port int) (bin string, cleanup func()) {
 	t.Helper()
 	bin = binPath(t)
-	startCmd := exec.CommandContext(context.Background(), bin, "start", "--port", fmt.Sprintf("%d", port), "--mode", "headless")
+	// Use "daemon" (the hidden blocking subcommand) directly so that
+	// Process.Kill() terminates the actual daemon, not a detached launcher.
+	// "start" spawns a detached child and exits, making cleanup unreliable.
+	startCmd := exec.CommandContext(context.Background(), bin, "daemon", "--port", fmt.Sprintf("%d", port), "--mode", "headless")
 	err := startCmd.Start()
 	require.NoError(t, err, "Failed to start daemon")
 
 	cleanup = func() {
-		exec.CommandContext(context.Background(), bin, "stop", "--port", fmt.Sprintf("%d", port)).Run() //nolint:errcheck
 		if startCmd.Process != nil {
 			startCmd.Process.Kill() //nolint:errcheck
 		}
+		startCmd.Wait() //nolint:errcheck
 	}
 
 	// Poll /ping until the daemon is ready instead of sleeping a fixed duration.
