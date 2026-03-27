@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -264,4 +265,70 @@ func TestTabClose_RemovesTab(t *testing.T) {
 	assert.Contains(t, listOut2, "Alpha")
 	assert.Contains(t, listOut2, "Beta")
 	assert.NotContains(t, listOut2, "Gamma", "Closed tab should be removed from list")
+}
+
+func TestTabNew_Background_DoesNotSwitchActive(t *testing.T) {
+	serverA := setupNamedServer("Page A")
+	defer serverA.Close()
+	serverB := setupNamedServer("Page B")
+	defer serverB.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", serverA.URL)
+	runCLI(t, bin, port, "tab", "new", "--background", serverB.URL)
+
+	// Active page should still be Page A
+	jsOut := runCLI(t, bin, port, "js", "() => document.getElementById('identity').innerText")
+	assert.Contains(t, jsOut, "I am Page A",
+		"Background tab should not change the active page")
+
+	// Both tabs should appear in list
+	listOut := runCLI(t, bin, port, "tab", "list")
+	assert.Contains(t, listOut, "Page A")
+	assert.Contains(t, listOut, "Page B")
+}
+
+func TestTabNew_Background_IsAccessibleViaSwitch(t *testing.T) {
+	serverA := setupNamedServer("Page A")
+	defer serverA.Close()
+	serverB := setupNamedServer("Page B")
+	defer serverB.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", serverA.URL)
+	runCLI(t, bin, port, "tab", "new", "--background", serverB.URL)
+
+	// Switch to the background tab
+	runCLI(t, bin, port, "tab", "switch", "1")
+
+	jsOut := runCLI(t, bin, port, "js", "() => document.getElementById('identity').innerText")
+	assert.Contains(t, jsOut, "I am Page B",
+		"After switching to background tab, JS should target Page B")
+}
+
+func TestTabNew_Background_ReceivesCapture(t *testing.T) {
+	fetchPath := "/bg-tab-fetch"
+	server := setupFetchServer(fetchPath)
+	defer server.Close()
+
+	port := nextPort()
+	bin, cleanup := startDaemon(t, port)
+	defer cleanup()
+
+	runCLI(t, bin, port, "navigate", "about:blank")
+	runCLI(t, bin, port, "network", "capture", "start")
+	runCLI(t, bin, port, "tab", "new", "--background", server.URL)
+
+	// Give the fetch a moment to complete
+	time.Sleep(1 * time.Second)
+
+	captureOut := runCLI(t, bin, port, "network", "capture", "stop")
+	assert.Contains(t, captureOut, fetchPath,
+		"Network capture should include requests from the background tab")
 }

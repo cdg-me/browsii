@@ -17,6 +17,8 @@ func init() {
 		Short: "Manage browser tabs (new, list, switch)",
 	}
 
+	var background bool
+
 	newCmd := &cobra.Command{
 		Use:   "new [url]",
 		Short: "Opens a new tab and navigates to the URL (default: about:blank)",
@@ -26,7 +28,7 @@ func init() {
 			if len(args) == 1 {
 				url = args[0]
 			}
-			payload := map[string]string{"url": url}
+			payload := map[string]interface{}{"url": url, "background": background}
 
 			_, err := client.SendCommand(port, "tab/new", payload)
 			if err != nil {
@@ -35,6 +37,7 @@ func init() {
 			fmt.Printf("Successfully opened new tab: %s\n", url)
 		},
 	}
+	newCmd.Flags().BoolVar(&background, "background", false, "Open the tab in the background without activating it")
 
 	listCmd := &cobra.Command{
 		Use:   "list",

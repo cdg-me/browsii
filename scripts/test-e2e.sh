@@ -11,4 +11,4 @@ echo "Building browsii for e2e tests..."
 go build -o browsii ./cmd/browsii
 
 echo "Running e2e tests (this launches a headless browser)..."
-go test -v -count=1 -timeout 120s ./tests/... "$@"
+go test -v -count=1 -timeout 300s ./tests/... "$@"

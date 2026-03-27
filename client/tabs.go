@@ -8,6 +8,13 @@ func (c *Client) TabNew(url string) error {
 	return err
 }
 
+// TabNewBackground opens a new tab in the background without activating it.
+// If url is empty, a blank tab is opened.
+func (c *Client) TabNewBackground(url string) error {
+	_, err := c.send("tab/new", map[string]any{"url": url, "background": true})
+	return err
+}
+
 // TabList returns all currently open tabs ordered by their tab index.
 func (c *Client) TabList() ([]Tab, error) {
 	raw, err := c.send("tab/list", nil)

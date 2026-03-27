@@ -3,6 +3,8 @@ package daemon
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/go-rod/rod/lib/proto"
 )
 
 func (s *Server) registerTabRoutes(mux *http.ServeMux) {
@@ -14,18 +16,31 @@ func (s *Server) registerTabRoutes(mux *http.ServeMux) {
 
 func (s *Server) handleTabNew(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL string `json:"url"`
+		URL        string `json:"url"`
+		Background bool   `json:"background"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	s.activePg = s.browser.MustPage("")
-	s.trackPage(s.activePg) // also registers the network listener
-	s.activePg.MustNavigate(req.URL).MustWaitLoad()
+	if req.Background {
+		page, err := s.browser.Page(proto.TargetCreateTarget{Background: true})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.trackPage(page)
+		if req.URL != "" && req.URL != "about:blank" {
+			page.MustNavigate(req.URL).MustWaitLoad()
+		}
+	} else {
+		s.activePg = s.browser.MustPage("")
+		s.trackPage(s.activePg)
+		s.activePg.MustNavigate(req.URL).MustWaitLoad()
+	}
 
-	s.recordAction("tab_new", map[string]interface{}{"url": req.URL})
+	s.recordAction("tab_new", map[string]interface{}{"url": req.URL, "background": req.Background})
 	w.WriteHeader(http.StatusOK)
 }
 
