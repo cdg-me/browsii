@@ -89,14 +89,16 @@ func (s *Server) handleScroll(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleNavigate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL       string `json:"url"`
-		WaitUntil string `json:"waitUntil"` // load, networkidle
+		URL        string `json:"url"`
+		WaitUntil  string `json:"waitUntil"` // load, networkidle
+		NoEvidence bool   `json:"noEvidence"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	sinceSeq := s.currentEventSeq()
 	page := s.activePage()
 	if page == nil {
 		// Create a new page in the appropriate context
@@ -130,12 +132,10 @@ func (s *Server) handleNavigate(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAction("navigate", map[string]interface{}{"url": req.URL, "waitUntil": req.WaitUntil})
 
-	// beforeunload dialogs triggered by this navigation are auto-handled per
-	// policy; dismissing one cancels the navigation, so report it.
-	if s.maybeReportDialogs(w, page) {
-		return
-	}
-	w.WriteHeader(http.StatusOK)
+	// Receipt: requests fired during load, console errors, and any
+	// beforeunload dialog that was auto-handled (dismissing one cancels
+	// the navigation, so the agent must see it).
+	s.writeEvidence(w, page, "", sinceSeq, req.NoEvidence)
 }
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {

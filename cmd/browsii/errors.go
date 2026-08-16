@@ -133,3 +133,48 @@ func printDialogsFromBody(body []byte) {
 		fmt.Printf("Dialog %s (%s): %q\n", disposition, dg.Type, dg.Message)
 	}
 }
+
+// printEvidenceFromBody renders the action receipt for the agent: navigation,
+// requests, console errors, and any dialogs (from either the evidence body or
+// the legacy dialogs-only body).
+func printEvidenceFromBody(body []byte) {
+	if len(body) == 0 {
+		return
+	}
+	var ev struct {
+		Navigated      bool     `json:"navigated"`
+		URL            string   `json:"url"`
+		RequestSamples []string `json:"requestSamples"`
+		ConsoleErrors  int      `json:"consoleErrors"`
+		Requests       int      `json:"requests"`
+		Dialogs        []struct {
+			Type     string `json:"type"`
+			Message  string `json:"message"`
+			Accepted bool   `json:"accepted"`
+		} `json:"dialogs"`
+	}
+	if err := json.Unmarshal(body, &ev); err != nil {
+		return
+	}
+	if ev.Navigated && ev.URL != "" {
+		fmt.Printf("→ navigated to %s\n", ev.URL)
+	}
+	for _, dg := range ev.Dialogs {
+		disposition := "dismissed"
+		if dg.Accepted {
+			disposition = "accepted"
+		}
+		fmt.Printf("Dialog %s (%s): %q\n", disposition, dg.Type, dg.Message)
+	}
+	if ev.Requests > 0 {
+		shown := ev.RequestSamples
+		if len(shown) == 0 {
+			fmt.Printf("⟳ %d request(s) fired\n", ev.Requests)
+		} else {
+			fmt.Printf("⟳ %d request(s): %s\n", ev.Requests, strings.Join(shown, ", "))
+		}
+	}
+	if ev.ConsoleErrors > 0 {
+		fmt.Printf("⚠ %d console error(s) — inspect with: browsii console capture start\n", ev.ConsoleErrors)
+	}
+}

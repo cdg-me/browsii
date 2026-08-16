@@ -81,6 +81,15 @@ func (s *Server) trackPage(p *rod.Page) {
 	s.attachNetworkListener(p)
 	s.attachConsoleListener(p)
 	s.attachDialogListener(p)
+
+	// Enable the Network/Runtime CDP domains for the page's lifetime: the
+	// always-on verification ring buffers (expect --request, action
+	// evidence, --no-console-errors) must observe events without an active
+	// capture session. domainRef counting makes this idempotent with the
+	// capture sessions' own acquire/release pairs.
+	s.networkDomain.acquirePages([]*rod.Page{p})
+	s.consoleDomain.acquirePages([]*rod.Page{p})
+
 	s.applyDomainsToNewPage(p)
 	s.applyInjectScriptsToNewPage(p)
 }
@@ -116,6 +125,10 @@ func (s *Server) untrackPage(p *rod.Page) {
 			delete(s.consoleListenedPages, p.TargetID)
 			delete(s.dialogListenedPages, p.TargetID)
 			s.invalidateElementRefs(p.TargetID)
+			// Release the always-on verification domain baseline acquired in
+			// trackPage (tolerates pages that were never tracked).
+			s.networkDomain.releasePages([]*rod.Page{p})
+			s.consoleDomain.releasePages([]*rod.Page{p})
 			return
 		}
 	}

@@ -9,6 +9,8 @@ import (
 	"github.com/cdg-me/browsii/internal/client"
 )
 
+var pressNoEvidence bool
+
 func init() {
 	pressCmd := &cobra.Command{
 		Use:   "press <key>",
@@ -16,7 +18,10 @@ func init() {
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			key := args[0]
-			payload := map[string]string{"key": key}
+			payload := map[string]any{"key": key}
+			if pressNoEvidence {
+				payload["noEvidence"] = true
+			}
 
 			resp, err := client.SendCommand(port, "press", payload)
 			if err != nil {
@@ -24,9 +29,11 @@ func init() {
 			}
 
 			fmt.Printf("Successfully pressed %s\n", key)
-			printDialogsFromBody(resp)
+			printEvidenceFromBody(resp)
 		},
 	}
+
+	pressCmd.Flags().BoolVar(&pressNoEvidence, "no-evidence", false, "Skip the post-action receipt (faster, less verifiable)")
 
 	rootCmd.AddCommand(pressCmd)
 }

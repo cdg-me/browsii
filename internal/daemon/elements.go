@@ -47,18 +47,11 @@ type elementInfo struct {
 	Rect     *elementRect `json:"rect,omitempty"`
 }
 
-// elementsJS enumerates interactive elements in the page's main frame and
-// returns them as a JSON string (so Go can unmarshal cleanly). Hidden
-// elements are included with visible=false; filtering happens daemon-side.
-// Built as a var (not const) because it interpolates jsMaxElements.
-var elementsJS = `() => {
-	const SEL = [
-		'a', 'button', 'input', 'select', 'textarea', 'summary', 'label',
-		'[contenteditable="true"]', '[contenteditable=""]',
-		'[role]', '[tabindex]', '[onclick]'
-	].join(',');
-	const SKIP = new Set(['script', 'style', 'template', 'noscript', 'svg']);
-
+// elementsHelpersJS holds the field-extraction functions shared by the full
+// enumeration (elementsJS) and the single-element live check (liveElementJS).
+// Both scripts must compute identity fields identically — ref fingerprint
+// verification compares their outputs byte for byte.
+var elementsHelpersJS = `
 	function esc(s) {
 		return (window.CSS && CSS.escape) ? CSS.escape(s) : s.replace(/([^a-zA-Z0-9_-])/g, '\\$1');
 	}
@@ -68,36 +61,6 @@ var elementsJS = `() => {
 	function trunc(s, n) {
 		s = s.replace(/\s+/g, ' ').trim();
 		return s.length > n ? s.slice(0, n) + '…' : s;
-	}
-	function selectorFor(el) {
-		const tag = el.tagName.toLowerCase();
-		if (el.id && unique('#' + esc(el.id))) return '#' + esc(el.id);
-		const nm = el.getAttribute('name');
-		if (nm) {
-			const safe = nm.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-			const s = tag + '[name="' + safe + '"]';
-			if (unique(s)) return s;
-		}
-		const parts = [];
-		let node = el, depth = 0;
-		while (node && node.nodeType === 1 && depth < 6) {
-			const t = node.tagName.toLowerCase();
-			let part = t;
-			const parent = node.parentElement;
-			if (parent) {
-				let idx = 1, sib = node;
-				while ((sib = sib.previousElementSibling)) {
-					if (sib.tagName === node.tagName) idx++;
-				}
-				if (idx > 1) part = t + ':nth-of-type(' + idx + ')';
-			}
-			parts.unshift(part);
-			const sel = parts.join(' > ');
-			if (depth > 0 && unique(sel)) return sel;
-			node = parent;
-			depth++;
-		}
-		return parts.join(' > ');
 	}
 	function roleOf(el, tag) {
 		const r = el.getAttribute('role');
@@ -137,6 +100,84 @@ var elementsJS = `() => {
 		if (title) return trunc(title, 80);
 		return '';
 	}
+	function identityOf(el, tag) {
+		const id = {
+			tag: tag,
+			role: roleOf(el, tag),
+			text: trunc(el.innerText || el.textContent || '', 80),
+			name: nameOf(el, tag)
+		};
+		if (tag === 'a') {
+			const href = el.getAttribute('href');
+			if (href) id.href = trunc(href, 120);
+		}
+		if (tag === 'input') id.type = (el.getAttribute('type') || 'text').toLowerCase();
+		return id;
+	}
+`
+
+// elementsJS enumerates interactive elements in the page's main frame and
+// returns them as a JSON string (so Go can unmarshal cleanly). Hidden
+// elements are included with visible=false; filtering happens daemon-side.
+// Built as a var (not const) because it interpolates other vars.
+var elementsJS = `() => {` + elementsHelpersJS + `
+	const SEL = [
+		'a', 'button', 'input', 'select', 'textarea', 'summary', 'label',
+		'[contenteditable="true"]', '[contenteditable=""]',
+		'[role]', '[tabindex]', '[onclick]'
+	].join(',');
+	const SKIP = new Set(['script', 'style', 'template', 'noscript', 'svg']);
+
+	function selectorFor(el) {
+		const tag = el.tagName.toLowerCase();
+		if (el.id && unique('#' + esc(el.id))) return '#' + esc(el.id);
+		const nm = el.getAttribute('name');
+		if (nm) {
+			const safe = nm.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+			const s = tag + '[name="' + safe + '"]';
+			if (unique(s)) return s;
+		}
+		const parts = [];
+		let node = el, depth = 0;
+		while (node && node.nodeType === 1 && depth < 12) {
+			const t = node.tagName.toLowerCase();
+			let part = t;
+			const parent = node.parentElement;
+			if (parent) {
+				let idx = 1, sib = node;
+				while ((sib = sib.previousElementSibling)) {
+					if (sib.tagName === node.tagName) idx++;
+				}
+				if (idx > 1) part = t + ':nth-of-type(' + idx + ')';
+			}
+			parts.unshift(part);
+			const sel = parts.join(' > ');
+			if (depth > 0 && unique(sel)) return sel;
+			node = parent;
+			depth++;
+		}
+		const joined = parts.join(' > ');
+		// The walk exhausted its depth budget without proving uniqueness
+		// (repeated table/list structures produce identical pretty paths).
+		// Fall back to a fully positional path, unique by construction.
+		return unique(joined) ? joined : positionalPath(el);
+	}
+	function positionalPath(el) {
+		const parts = [];
+		let node = el;
+		while (node && node.nodeType === 1 && parts.length < 15) {
+			const t = node.tagName.toLowerCase();
+			const parent = node.parentElement;
+			if (!parent) { parts.unshift(t); break; }
+			let idx = 1, sib = node;
+			while ((sib = sib.previousElementSibling)) {
+				if (sib.tagName === node.tagName) idx++;
+			}
+			parts.unshift(t + ':nth-of-type(' + idx + ')');
+			node = parent;
+		}
+		return parts.join(' > ');
+	}
 
 	const out = [];
 	const seen = new Set();
@@ -149,26 +190,16 @@ var elementsJS = `() => {
 		const visible = style.display !== 'none' && style.visibility !== 'hidden' &&
 			!!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
 		const r = el.getBoundingClientRect();
-		const info = {
-			tag: tag,
-			role: roleOf(el, tag),
-			text: trunc(el.innerText || el.textContent || '', 80),
-			name: nameOf(el, tag),
-			selector: selectorFor(el),
-			visible: visible,
-			disabled: !!el.disabled,
-			rect: visible ? {
-				x: Math.round(r.x), y: Math.round(r.y),
-				w: Math.round(r.width), h: Math.round(r.height)
-			} : null
-		};
-		if (tag === 'a') {
-			const href = el.getAttribute('href');
-			if (href) info.href = trunc(href, 120);
-		}
+		const info = identityOf(el, tag);
+		info.selector = selectorFor(el);
+		info.visible = visible;
+		info.disabled = !!el.disabled;
+		info.rect = visible ? {
+			x: Math.round(r.x), y: Math.round(r.y),
+			w: Math.round(r.width), h: Math.round(r.height)
+		} : null;
 		if (tag === 'input') {
-			const t = (el.getAttribute('type') || 'text').toLowerCase();
-			info.type = t;
+			const t = info.type;
 			if (t === 'checkbox' || t === 'radio') info.checked = !!el.checked;
 			else if (t !== 'password') info.value = trunc(el.value || '', 40);
 		}
@@ -178,6 +209,16 @@ var elementsJS = `() => {
 	}
 	out.forEach((info, i) => { info.ref = i + 1; });
 	return JSON.stringify(out);
+}`
+
+// liveElementJS returns the identity fields of the element currently matching
+// the given selector, or null when the selector matches nothing. Shares the
+// helper functions with the enumeration so fingerprints are comparable.
+var liveElementJS = `(sel) => {` + elementsHelpersJS + `
+	const el = document.querySelector(sel);
+	if (!el) return null;
+	const tag = el.tagName.toLowerCase();
+	return JSON.stringify(identityOf(el, tag));
 }`
 
 // enumerateElements runs the in-page enumeration and refreshes the ref store
@@ -205,22 +246,50 @@ func (s *Server) invalidateElementRefs(targetID proto.TargetTargetID) {
 	s.mu.Unlock()
 }
 
-// lookupElementRef resolves ref against the page's ref store, refreshing the
-// store once when the ref is unknown (the store may predate a DOM change).
-// Returns nil when the ref does not exist even after a refresh.
-func (s *Server) lookupElementRef(page *rod.Page, ref int) *elementInfo {
-	if ref < 1 {
-		return nil
-	}
-	if e := s.lookupRefInStore(page.TargetID, ref); e != nil {
-		return e
-	}
-	if _, err := s.enumerateElements(page); err != nil {
-		return nil
-	}
-	return s.lookupRefInStore(page.TargetID, ref)
+// elementIdentity is the subset of elementInfo that constitutes the
+// element's fingerprint: fields that survive DOM reordering but still
+// identify the element (value/checked/disabled/visible are excluded — they
+// change legitimately without the element being replaced).
+type elementIdentity struct {
+	Tag  string `json:"tag"`
+	Role string `json:"role"`
+	Text string `json:"text"`
+	Name string `json:"name"`
+	Href string `json:"href"`
+	Type string `json:"type"`
 }
 
+// fingerprintParts joins the identity fields into one comparison string.
+// The separator is chosen to never appear in normalized text fields.
+func fingerprintParts(tag, role, text, name, href, typ string) string {
+	return strings.Join([]string{tag, role, text, name, href, typ}, "\x1f")
+}
+
+// fingerprintOf returns the stable identity string of an enumerated element.
+func fingerprintOf(e elementInfo) string {
+	return fingerprintParts(e.Tag, e.Role, e.Text, e.Name, e.Href, e.Type)
+}
+
+// liveFingerprint evaluates the page and returns the identity string of the
+// element currently matching selector ("" when the selector matches nothing).
+func liveFingerprint(page *rod.Page, selector string) (string, error) {
+	res, err := page.Eval(liveElementJS, selector)
+	if err != nil {
+		return "", err
+	}
+	if res == nil || res.Value.Val() == nil {
+		return "", nil // selector matches nothing
+	}
+	var id elementIdentity
+	if err := json.Unmarshal([]byte(res.Value.Str()), &id); err != nil {
+		return "", err
+	}
+	return fingerprintParts(id.Tag, id.Role, id.Text, id.Name, id.Href, id.Type), nil
+}
+
+// lookupRefInStore returns the element recorded at ref in the page's ref
+// store without refreshing it — the entry holds the identity the caller's
+// 'elements' invocation observed, which fingerprint verification needs.
 func (s *Server) lookupRefInStore(targetID proto.TargetTargetID, ref int) *elementInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()

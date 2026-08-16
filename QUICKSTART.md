@@ -107,6 +107,53 @@ browsii dialogs --clear --port 9222            # forget history
 Default policy is `dismiss`: `confirm()` returns false, and a dismissed
 `beforeunload` cancels the navigation that triggered it.
 
+### Verifying actions (expect + receipts)
+
+Every click/press/navigate returns a receipt of what the action actually
+caused — navigation, requests fired, dialogs, console errors:
+
+```sh
+browsii click "#submit" --port 9222
+# Successfully clicked '#submit'
+# → navigated to https://app.example.com/orders/123
+# ⟳ 2 request(s): POST /api/orders (201), GET /api/orders/123 (200)
+```
+
+Use `--no-evidence` on any of them to skip the settle window when speed
+matters more than verification.
+
+`expect` verifies outcomes and doubles as the wait primitive for SPA updates —
+it polls until the condition holds (default 5s) and fails with actionable
+diffs, not just "timeout":
+
+```sh
+browsii expect --text "Saved" --port 9222                       # text visible
+browsii expect --text-gone "Loading…" --port 9222               # text disappeared
+browsii expect --url-pattern "*/orders/*" --port 9222           # URL glob
+browsii expect --selector ".results" --port 9222                # element visible
+browsii expect --selector ".spinner" --hidden --port 9222       # element hidden/gone
+browsii expect --ref 3 --value "user@x.com" --port 9222         # input value equals
+browsii expect --request "POST */api/order*" --port 9222        # request fired
+browsii expect --no-console-errors --port 9222                  # no error-level console entries
+browsii expect --text "Saved" --timeout 10000 --port 9222       # custom budget
+```
+
+`--no-console-errors` may accompany any condition. `--request` observes
+traffic without a capture session and looks back 10s, so the natural flow is
+`click` then `expect --request`. Failures explain themselves:
+
+```
+browsii expect --request "POST */api/orders" 
+expect failed: request matched POST */api/orders — timed out after 5000ms
+requests that fired:
+  GET /api/session (200)
+  GET /api/cart (200)
+hint: the expected request did not fire — check the action that should have triggered it
+```
+
+The act → receipt → expect loop is the intended verification workflow:
+actions report evidence, expect independently asserts outcomes.
+
 ### Mouse
 
 ```sh
@@ -352,6 +399,12 @@ c.TypeRef(list.Elements[0].Ref, "hello")
 state, _ := c.Dialogs()                     // policy + recent history
 c.SetDialogPolicy("accept", "Alice", false) // policy, prompt text, clear history
 
+// Verification
+c.Expect(client.ExpectOpts{Text: "Saved"})                        // waits until visible
+c.Expect(client.ExpectOpts{Request: "POST */api/order*"})         // request fired
+receipt, _ := c.ClickWithEvidence("#submit")                      // action receipt
+// receipt.Navigated, receipt.URL, receipt.RequestSamples, receipt.ConsoleErrors
+
 // Tabs
 c.TabNew("https://example.com")
 tabs, _ := c.TabList()           // []client.Tab{Index, ID, URL, Title}
@@ -502,6 +555,8 @@ To update the fixture, delete the HAR and re-record against the live site with a
 **Interaction errors are actionable.** Failed click/type/hover return similar elements with refs. Treat the candidate list as the retry menu rather than re-guessing selectors.
 
 **Dialogs are auto-handled, never blocking.** alert/confirm/prompt/beforeunload are resolved per the current policy (default: dismiss) and reported inline by the action that triggered them. A dismissed beforeunload cancels its navigation.
+
+**Actions carry receipts.** click/press/navigate append what the action caused: navigation, requests (up to 5 samples), dialogs, console-error count. `expect` then independently asserts outcomes — the two compose into a verifiable act→check loop.
 
 **Capture is destructive.** Calling `network capture stop` / `console capture stop` returns and clears the buffer. A second call returns an empty array.
 

@@ -152,6 +152,18 @@ type Server struct {
 	// navigation and replaced by every enumeration.
 	elementRefs map[proto.TargetTargetID][]elementInfo
 
+	// Always-on event history for verification (expect/evidence).
+	//
+	// netRing and consoleRing are bounded ring buffers of recent network and
+	// console activity on tracked pages. They require no capture session:
+	// the CDP domains are enabled for the lifetime of each tracked page.
+	// Entries carry a monotonically increasing Seq (eventSeq) so consumers
+	// can assert over "everything since action X". All guarded by s.mu.
+	netRing      []netRingEntry
+	consoleRing  []consoleRingEntry
+	ringInFlight map[proto.NetworkRequestID]*netRingEntry
+	eventSeq     uint64
+
 	// SSE Broadcasting
 	sseClients map[chan StreamEvent]struct{}
 	sseMu      sync.RWMutex
@@ -209,6 +221,7 @@ func NewServer(port int, mode string) *Server {
 		dialogPolicy:         "dismiss",
 		dialogListenedPages:  make(map[proto.TargetTargetID]struct{}),
 		elementRefs:          make(map[proto.TargetTargetID][]elementInfo),
+		ringInFlight:         make(map[proto.NetworkRequestID]*netRingEntry),
 	}
 	s.networkDomain = domainRef{
 		refs:      make(map[proto.TargetTargetID]int),
@@ -343,6 +356,7 @@ func (s *Server) Start() error {
 	s.registerSnapshotRoutes(mux)
 	s.registerElementRoutes(mux)
 	s.registerDialogRoutes(mux)
+	s.registerExpectRoutes(mux)
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),

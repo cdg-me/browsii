@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -17,20 +18,31 @@ func (s *Server) registerInteractionRoutes(mux *http.ServeMux) {
 }
 
 // resolveElementTarget maps a request's ref-or-selector pair to a CSS
-// selector. When ref > 0 the ref store is consulted (refreshing it once if
-// the ref is unknown). Returns an apiError suitable for writeAPIError when
-// the target cannot be resolved.
+// selector. When ref > 0 the recorded element is fingerprint-verified: the
+// selector must still resolve to an element with the same identity (tag,
+// role, text, name, href, type). A mismatch triggers retargeting by
+// identity — the element moved but survived — and failing that, an
+// actionable error. This prevents refs from silently landing on unrelated
+// elements when the DOM shifts between 'elements' and the action.
 func (s *Server) resolveElementTarget(page *rod.Page, ref int, selector string) (string, *apiError) {
 	if ref > 0 {
-		e := s.lookupElementRef(page, ref)
+		e := s.lookupRefInStore(page.TargetID, ref)
 		if e == nil {
-			return "", notFoundError(
-				"element ref "+strconv.Itoa(ref)+" not found — the page may have changed since 'elements' was last run",
-				"run 'elements' again to get fresh refs, then retry with the new ref",
-				nil,
-			)
+			// Store missing (never enumerated, or navigated away) or ref out
+			// of range: refresh once. There is no prior identity to verify
+			// against, so the fresh positional element is the best answer.
+			elems, err := s.enumerateElements(page)
+			if err != nil || ref > len(elems) {
+				return "", notFoundError(
+					"element ref "+strconv.Itoa(ref)+" not found — the page may have changed since 'elements' was last run",
+					"run 'elements' again to get fresh refs, then retry with the new ref",
+					nil,
+				)
+			}
+			fresh := elems[ref-1]
+			return fresh.Selector, nil
 		}
-		return e.Selector, nil
+		return s.verifyRefIdentity(page, e)
 	}
 	if selector == "" {
 		return "", &apiError{
@@ -40,6 +52,38 @@ func (s *Server) resolveElementTarget(page *rod.Page, ref int, selector string) 
 		}
 	}
 	return selector, nil
+}
+
+// verifyRefIdentity confirms selector still resolves to an element with the
+// recorded identity. When it does not, a fresh enumeration is searched for
+// the identity: found → retarget to the element's current selector; not
+// found → fail with the original identity and candidates so the agent can
+// recover in one round trip.
+func (s *Server) verifyRefIdentity(page *rod.Page, e *elementInfo) (string, *apiError) {
+	want := fingerprintOf(*e)
+	if live, err := liveFingerprint(page, e.Selector); err == nil && live == want {
+		return e.Selector, nil // identity intact — page is quiet
+	}
+	elems, err := s.enumerateElements(page)
+	if err != nil {
+		// Enumeration failed (e.g. page mid-navigation); the recorded
+		// selector is still the best available answer.
+		return e.Selector, nil
+	}
+	for i := range elems {
+		if fingerprintOf(elems[i]) == want {
+			return elems[i].Selector, nil // element survived the move
+		}
+	}
+	label := e.Text
+	if label == "" {
+		label = e.Name
+	}
+	return "", notFoundError(
+		fmt.Sprintf("element ref %d no longer matches: was %s %q → %s", e.Ref, e.Role, label, e.Selector),
+		"the page changed since 'elements' was last run; re-run it for fresh refs",
+		findCandidates(elems, label+" "+e.Selector, 5),
+	)
 }
 
 // elementNotFound builds the actionable not-found response: a fresh
@@ -78,7 +122,8 @@ func (s *Server) findElement(page *rod.Page, selector string) (*rod.Element, *ap
 
 func (s *Server) handlePress(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Key string `json:"key"`
+		Key        string `json:"key"`
+		NoEvidence bool   `json:"noEvidence"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -90,6 +135,8 @@ func (s *Server) handlePress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	urlBefore, sinceSeq := s.actionAnchors(page)
+
 	// Handle key combos like "Control+a" by using page.KeyActions()
 	keys := parseKeyCombo(req.Key)
 	ka := page.KeyActions()
@@ -99,11 +146,8 @@ func (s *Server) handlePress(w http.ResponseWriter, r *http.Request) {
 	ka.MustDo()
 	s.recordAction("press", map[string]interface{}{"key": req.Key})
 
-	// Pressing Enter can submit forms and trigger dialogs (confirm/beforeunload).
-	if s.maybeReportDialogs(w, page) {
-		return
-	}
-	w.WriteHeader(http.StatusOK)
+	// Pressing Enter can submit forms (navigation) and trigger dialogs.
+	s.writeEvidence(w, page, urlBefore, sinceSeq, req.NoEvidence)
 }
 
 func (s *Server) handleHover(w http.ResponseWriter, r *http.Request) {
@@ -141,8 +185,9 @@ func (s *Server) handleHover(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleClick(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Ref      int    `json:"ref"`
-		Selector string `json:"selector"`
+		Ref        int    `json:"ref"`
+		Selector   string `json:"selector"`
+		NoEvidence bool   `json:"noEvidence"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -164,18 +209,24 @@ func (s *Server) handleClick(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, aerr)
 		return
 	}
+
+	urlBefore, sinceSeq := s.actionAnchors(page)
+
 	if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		http.Error(w, "click failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	s.recordAction("click", map[string]interface{}{"selector": selector})
 
-	// Clicks are the main dialog trigger (confirm/beforeunload on links and
-	// buttons); surface any dialog that was auto-handled as a result.
-	if s.maybeReportDialogs(w, page) {
-		return
-	}
-	w.WriteHeader(http.StatusOK)
+	// Receipt: what did the click actually cause?
+	s.writeEvidence(w, page, urlBefore, sinceSeq, req.NoEvidence)
+}
+
+// actionAnchors snapshots the pre-action state evidence is measured against.
+func (s *Server) actionAnchors(page *rod.Page) (urlBefore string, sinceSeq int64) {
+	urlBefore, _ = s.pageURL(page)
+	sinceSeq = s.currentEventSeq()
+	return urlBefore, sinceSeq
 }
 
 func (s *Server) handleType(w http.ResponseWriter, r *http.Request) {

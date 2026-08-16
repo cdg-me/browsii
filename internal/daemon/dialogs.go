@@ -138,3 +138,62 @@ func (s *Server) maybeReportDialogs(w http.ResponseWriter, page *rod.Page) bool 
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"dialogs": drained})
 	return true
 }
+
+// evidenceSettle is the post-action window during which triggered work
+// (navigations, fetches, console errors) is observed before the receipt is
+// written. Same order of magnitude as playwright-mcp's settle default.
+const evidenceSettle = 400 * time.Millisecond
+
+// actionEvidence is the receipt attached to click/press/navigate responses:
+// what the action actually caused, so agents can verify instead of trusting.
+type actionEvidence struct {
+	Navigated      bool          `json:"navigated,omitempty"`
+	URL            string        `json:"url,omitempty"`
+	Dialogs        []dialogEntry `json:"dialogs,omitempty"`
+	Requests       int           `json:"requests"`
+	RequestSamples []string      `json:"requestSamples,omitempty"`
+	ConsoleErrors  int           `json:"consoleErrors"`
+}
+
+// writeEvidence collects and writes the post-action receipt. urlBefore is the
+// page URL before the action ("" when unknown — navigation detection is
+// skipped). sinceSeq anchors ring queries to the moment before the action.
+// When skip is true the settle window is omitted and a bare 200 is written.
+func (s *Server) writeEvidence(w http.ResponseWriter, page *rod.Page, urlBefore string, sinceSeq int64, skip bool) {
+	if skip {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	time.Sleep(evidenceSettle)
+
+	ev := &actionEvidence{}
+	if href, err := s.pageURL(page); err == nil {
+		ev.URL = href
+		ev.Navigated = urlBefore != "" && href != urlBefore
+	}
+	ev.Dialogs = s.drainDialogsFor(page.TargetID)
+
+	reqs := s.netRequestsSince(sinceSeq)
+	ev.Requests = len(reqs)
+	last := len(reqs) - 5
+	if last < 0 {
+		last = 0
+	}
+	for _, e := range reqs[last:] {
+		ev.RequestSamples = append(ev.RequestSamples, formatNetEntry(e))
+	}
+	ev.ConsoleErrors = len(s.consoleErrorsSince(sinceSeq))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(ev)
+}
+
+// pageURL returns the page's current URL via a single eval.
+func (s *Server) pageURL(page *rod.Page) (string, error) {
+	res, err := page.Eval(`() => location.href`)
+	if err != nil {
+		return "", err
+	}
+	return res.Value.Str(), nil
+}

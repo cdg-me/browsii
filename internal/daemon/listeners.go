@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -37,6 +38,16 @@ func (s *Server) attachNetworkListener(page *rod.Page) {
 					break
 				}
 			}
+
+			// Always-on ring entry: verification (expect --request, action
+			// evidence) must not require an active capture session.
+			ringEntry := s.pushNetRing(netRingEntry{
+				Seq:    s.nextEventSeq(),
+				URL:    e.Request.URL,
+				Method: e.Request.Method,
+				Tab:    tabIdx,
+			})
+			s.ringInFlight[e.RequestID] = ringEntry
 
 			if s.capturing && (s.captureTabFilter == -1 || s.captureTabFilter == tabIdx) {
 				entry := &capturedRequest{
@@ -76,8 +87,11 @@ func (s *Server) attachNetworkListener(page *rod.Page) {
 					entry.RequestHeaders = hdrs
 				}
 
-				// request-body
-				if s.captureInclude["request-body"] && e.Request.PostData != "" {
+				// request-body: small textual bodies on mutating verbs are
+				// captured by default — agents debugging forms need them and
+				// should not have to know about --include request-body.
+				// Oversized or non-textual bodies still require the flag.
+				if (s.captureInclude["request-body"] || defaultCaptureBody(e.Request)) && e.Request.PostData != "" {
 					entry.PostData = e.Request.PostData
 				}
 
@@ -102,6 +116,8 @@ func (s *Server) attachNetworkListener(page *rod.Page) {
 		func(e *proto.NetworkResponseReceived) {
 			s.mu.Lock()
 			defer s.mu.Unlock()
+
+			s.ringCorrelate(e.RequestID, e.Response.Status)
 
 			if !s.capturing {
 				return
@@ -219,10 +235,11 @@ func (s *Server) attachNetworkListener(page *rod.Page) {
 		},
 
 		func(e *proto.NetworkLoadingFailed) {
-			// Clean up in-flight map so failed requests don't leak across long sessions.
+			// Clean up in-flight maps so failed requests don't leak across long sessions.
 			s.mu.Lock()
 			defer s.mu.Unlock()
 			delete(s.inFlightReqs, e.RequestID)
+			s.ringDrop(e.RequestID)
 		},
 	)
 
@@ -235,6 +252,36 @@ func phaseDuration(start, end float64) float64 {
 		return end - start
 	}
 	return -1
+}
+
+// maxDefaultBodyBytes bounds request bodies captured without an explicit
+// --include request-body.
+const maxDefaultBodyBytes = 4096
+
+// defaultCaptureBody reports whether the request's body should be captured
+// without opting in: small textual bodies on mutating verbs. GET query
+// strings are already visible in the URL; large payloads and binaries stay
+// opt-in to keep default captures compact.
+func defaultCaptureBody(req *proto.NetworkRequest) bool {
+	switch req.Method {
+	case "POST", "PUT", "PATCH":
+	default:
+		return false
+	}
+	if len(req.PostData) > maxDefaultBodyBytes {
+		return false
+	}
+	ct := ""
+	for k, v := range req.Headers {
+		if strings.EqualFold(k, "content-type") {
+			ct = strings.ToLower(v.Str())
+			break
+		}
+	}
+	if ct == "" {
+		return true
+	}
+	return strings.Contains(ct, "json") || strings.Contains(ct, "form") || strings.Contains(ct, "text/") || strings.Contains(ct, "x-www-form")
 }
 
 // attachConsoleListener binds a CDP Runtime console listener to a page.
@@ -261,6 +308,16 @@ func (s *Server) attachConsoleListener(page *rod.Page) {
 				tabIdx = i
 				break
 			}
+		}
+		// Always-on ring entry for error/warn levels: powers
+		// expect --no-console-errors and action evidence without a capture.
+		if level == "error" || level == "warn" {
+			s.pushConsoleRing(consoleRingEntry{
+				Seq:   s.nextEventSeq(),
+				Level: level,
+				Text:  text,
+				Tab:   tabIdx,
+			})
 		}
 		if s.consoleCapturing &&
 			(s.consoleTabFilter == -1 || s.consoleTabFilter == tabIdx) &&

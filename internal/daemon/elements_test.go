@@ -2,7 +2,66 @@ package daemon
 
 import (
 	"testing"
+
+	"github.com/go-rod/rod/lib/proto"
+	"github.com/ysmood/gson"
 )
+
+func TestFingerprintOf(t *testing.T) {
+	a := elementInfo{Tag: "button", Role: "button", Text: "Submit order", Selector: "#a"}
+	b := elementInfo{Tag: "button", Role: "button", Text: "Submit order", Selector: "body > div > button:nth-of-type(3)"}
+	if fingerprintOf(a) != fingerprintOf(b) {
+		t.Fatal("identity fields match, selector differs — fingerprints must be equal")
+	}
+
+	c := elementInfo{Tag: "button", Role: "button", Text: "Submit payment"}
+	if fingerprintOf(a) == fingerprintOf(c) {
+		t.Fatal("different text must produce different fingerprints")
+	}
+
+	// Volatile fields must not participate: value/checked/disabled/visible
+	// change legitimately without the element being replaced.
+	d := a
+	d.Value = "typed"
+	d.Checked = new(bool)
+	d.Disabled = true
+	d.Visible = false
+	if fingerprintOf(a) != fingerprintOf(d) {
+		t.Fatal("volatile fields must not affect the fingerprint")
+	}
+
+	if fingerprintOf(elementInfo{}) == "" {
+		t.Fatal("zero element must still produce a (separable) fingerprint")
+	}
+}
+
+func TestDefaultCaptureBody(t *testing.T) {
+	jsonHdr := proto.NetworkHeaders{"Content-Type": gson.New("application/json")}
+	formHdr := proto.NetworkHeaders{"content-type": gson.New("application/x-www-form-urlencoded")} //nolint:goconst // header casing varies by client
+	binHdr := proto.NetworkHeaders{"Content-Type": gson.New("image/png")}
+
+	cases := []struct {
+		name string
+		req  proto.NetworkRequest
+		want bool
+	}{
+		{"json POST", proto.NetworkRequest{Method: "POST", Headers: jsonHdr, PostData: `{"a":1}`}, true},
+		{"form POST case-insensitive header", proto.NetworkRequest{Method: "POST", Headers: formHdr, PostData: "a=1"}, true},
+		{"text PUT", proto.NetworkRequest{Method: "PUT", Headers: proto.NetworkHeaders{"Content-Type": gson.New("text/plain")}, PostData: "hi"}, true},
+		{"no content-type POST", proto.NetworkRequest{Method: "POST", PostData: "a=1"}, true},
+		{"PATCH json", proto.NetworkRequest{Method: "PATCH", Headers: jsonHdr, PostData: "{}"}, true},
+		{"GET never", proto.NetworkRequest{Method: "GET", Headers: jsonHdr, PostData: "a=1"}, false},
+		{"binary POST", proto.NetworkRequest{Method: "POST", Headers: binHdr, PostData: "pngbytes"}, false},
+		{"oversized POST", proto.NetworkRequest{Method: "POST", Headers: jsonHdr, PostData: string(make([]byte, maxDefaultBodyBytes+1))}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := defaultCaptureBody(&tc.req); got != tc.want {
+				t.Fatalf("defaultCaptureBody(%s %s) = %v, want %v", tc.req.Method, tc.req.Headers, got, tc.want)
+			}
+		})
+	}
+}
 
 func TestSelectorTokens(t *testing.T) {
 	cases := []struct {
