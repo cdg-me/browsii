@@ -32,6 +32,9 @@ func (s *Server) handleContextCreate(w http.ResponseWriter, r *http.Request) {
 	// Create an incognito browser context (isolated cookies, storage, etc.)
 	incognito := s.browser.MustIncognito()
 	page := incognito.MustPage("about:blank")
+	// Context pages are not tracked like regular tabs, but they still need
+	// dialog auto-handling or a single alert() would stall the page forever.
+	s.attachDialogListener(page)
 
 	s.contexts[req.Name] = &contextState{
 		browser: incognito,

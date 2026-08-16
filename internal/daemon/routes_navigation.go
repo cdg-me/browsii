@@ -104,6 +104,7 @@ func (s *Server) handleNavigate(w http.ResponseWriter, r *http.Request) {
 			if ctx, ok := s.contexts[s.activeCtx]; ok {
 				page = ctx.browser.MustPage("")
 				ctx.page = page
+				s.attachDialogListener(page)
 			}
 		}
 		if page == nil {
@@ -124,7 +125,16 @@ func (s *Server) handleNavigate(w http.ResponseWriter, r *http.Request) {
 		page.MustWaitLoad()
 	}
 
+	// Navigation invalidates element refs: the DOM they indexed is gone.
+	s.invalidateElementRefs(page.TargetID)
+
 	s.recordAction("navigate", map[string]interface{}{"url": req.URL, "waitUntil": req.WaitUntil})
+
+	// beforeunload dialogs triggered by this navigation are auto-handled per
+	// policy; dismissing one cancels the navigation, so report it.
+	if s.maybeReportDialogs(w, page) {
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 

@@ -22,6 +22,7 @@ type EventType string
 const (
 	EventNetworkRequest EventType = "network_request"
 	EventConsole        EventType = "console"
+	EventDialog         EventType = "dialog"
 	EventOverflow       EventType = "overflow_warning"
 )
 
@@ -134,6 +135,23 @@ type Server struct {
 	networkCapturingPages []*rod.Page
 	consoleCapturingPages []*rod.Page
 
+	// dialog auto-handling state. dialogPolicy controls how unattended
+	// JavaScript dialogs (alert/confirm/prompt/beforeunload) are resolved:
+	// "dismiss" (default) or "accept". dialogPromptText is typed into prompt()
+	// dialogs before accepting. dialogLog retains the last dialogLogCap
+	// auto-handled dialogs for /dialogs. dialogListenedPages makes
+	// attachDialogListener idempotent (one listener per page, ever).
+	// All guarded by s.mu.
+	dialogPolicy        string
+	dialogPromptText    string
+	dialogLog           []dialogEntry
+	dialogListenedPages map[proto.TargetTargetID]struct{}
+
+	// elementRefs caches the last element enumeration per page, keyed by
+	// TargetID; entry i holds ref i+1. Guarded by s.mu. Invalidated on
+	// navigation and replaced by every enumeration.
+	elementRefs map[proto.TargetTargetID][]elementInfo
+
 	// SSE Broadcasting
 	sseClients map[chan StreamEvent]struct{}
 	sseMu      sync.RWMutex
@@ -188,6 +206,9 @@ func NewServer(port int, mode string) *Server {
 		consoleTabFilter:     -1,
 		injectJSByPage:       make(map[proto.TargetTargetID][]injectJSEntry),
 		injectJSCDPIDs:       make(map[string]map[proto.TargetTargetID]proto.PageScriptIdentifier),
+		dialogPolicy:         "dismiss",
+		dialogListenedPages:  make(map[proto.TargetTargetID]struct{}),
+		elementRefs:          make(map[proto.TargetTargetID][]elementInfo),
 	}
 	s.networkDomain = domainRef{
 		refs:      make(map[proto.TargetTargetID]int),
@@ -208,6 +229,14 @@ func (s *Server) Start() error {
 
 	// 1. Configure the Launcher based on mode
 	l := launcher.New()
+	// BROWSII_BIN overrides the browser executable (e.g. system Chrome).
+	// Useful to avoid rod's auto-downloaded unsigned Chromium, which macOS
+	// cannot hold a persistent ScreenCapture permission for (every
+	// screenshot/printToPDF triggers a fresh TCC consent prompt).
+	if bin := os.Getenv("BROWSII_BIN"); bin != "" {
+		l = l.Bin(bin)
+		log.Printf("Using browser from BROWSII_BIN: %s", bin)
+	}
 	if os.Getenv("CI") != "" {
 		l = l.Set("no-sandbox")
 	}
@@ -226,10 +255,32 @@ func (s *Server) Start() error {
 		}
 
 		// When using the user's browsers, allow any managed flows to happen in the background
-		l = l.Delete("disable-component-extensions-with-background-pages")
-		l = l.Delete("disable-default-apps")
-		l = l.Delete("enable-automation")
-		l = l.Delete("disable-background-networking")
+		// Also strip go-rod automation flags that fingerprint the browser.
+		// use-mock-keychain breaks Cloudflare Private Access Tokens by
+		// preventing real macOS Keychain access.
+		for _, flag := range []string{
+			"disable-background-networking",
+			"disable-background-timer-throttling",
+			"disable-backgrounding-occluded-windows",
+			"disable-breakpad",
+			"disable-client-side-phishing-detection",
+			"disable-component-extensions-with-background-pages",
+			"disable-default-apps",
+			"disable-hang-monitor",
+			"disable-ipc-flooding-protection",
+			"disable-prompt-on-repost",
+			"disable-renderer-backgrounding",
+			"disable-site-isolation-trials",
+			"disable-sync",
+			"enable-automation",
+			"enable-features",
+			"force-color-profile",
+			"metrics-recording-only",
+			"use-mock-keychain",
+		} {
+			l = l.Delete(flags.Flag(flag))
+		}
+		l = l.Leakless(false)
 	}
 
 	// headful modes show a visible window; all others run headless.
@@ -253,6 +304,16 @@ func (s *Server) Start() error {
 	// Disable the default 1200x900 viewport binding to let the page fill the physical window
 	s.browser = rod.New().ControlURL(u).MustConnect().DefaultDevice(devices.Clear)
 	log.Println("Browser launched and connected successfully.")
+
+	// In user-* modes, clear the webdriver flag on the initial page.
+	// CDP sets navigator.webdriver = true on connect regardless of launch flags;
+	// this override tells Chrome to stop reporting it.
+	if s.mode == "user-headful" || s.mode == "user-headless" {
+		pages, _ := s.browser.Pages()
+		for _, p := range pages {
+			_ = proto.EmulationSetAutomationOverride{Enabled: false}.Call(p)
+		}
+	}
 
 	// Register signal handler so Ctrl+C / SIGTERM always kills Chrome cleanly
 	s.HandleSignals()
@@ -280,6 +341,8 @@ func (s *Server) Start() error {
 	s.registerContextRoutes(mux)
 	s.registerInjectRoutes(mux)
 	s.registerSnapshotRoutes(mux)
+	s.registerElementRoutes(mux)
+	s.registerDialogRoutes(mux)
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),

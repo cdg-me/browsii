@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/spf13/cobra"
 
@@ -11,23 +10,26 @@ import (
 
 func init() {
 	typeCmd := &cobra.Command{
-		Use:   "type <selector> <text>",
+		Use:   "type <ref-or-selector> <text>",
 		Short: "Types text into an input element",
-		Args:  cobra.ExactArgs(2),
+		Long: `Types text into an input element, replacing any existing value.
+
+Accepts either a CSS selector or a numeric element ref from 'browsii elements':
+  browsii type #email "user@example.com"
+  browsii type 3 "user@example.com"`,
+		Args: cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
-			selector := args[0]
+			target := args[0]
 			text := args[1]
-			payload := map[string]string{
-				"selector": selector,
-				"text":     text,
-			}
+			payload := interactionTarget(target)
+			payload["text"] = text
 
 			_, err := client.SendCommand(port, "type", payload)
 			if err != nil {
-				log.Fatalf("Type failed: %v", err)
+				failAction("Type", err)
 			}
 
-			fmt.Printf("Successfully typed into '%s'\n", selector)
+			fmt.Printf("Successfully typed into '%s'\n", target)
 		},
 	}
 

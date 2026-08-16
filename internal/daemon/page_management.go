@@ -72,8 +72,15 @@ func (s *Server) trackPage(p *rod.Page) {
 		}
 	}
 	s.pageOrder = append(s.pageOrder, p.TargetID)
+
+	// Clear webdriver flag on new pages in user-* modes
+	if s.mode == "user-headful" || s.mode == "user-headless" {
+		_ = proto.EmulationSetAutomationOverride{Enabled: false}.Call(p)
+	}
+
 	s.attachNetworkListener(p)
 	s.attachConsoleListener(p)
+	s.attachDialogListener(p)
 	s.applyDomainsToNewPage(p)
 	s.applyInjectScriptsToNewPage(p)
 }
@@ -107,6 +114,8 @@ func (s *Server) untrackPage(p *rod.Page) {
 			s.pageOrder = append(s.pageOrder[:i], s.pageOrder[i+1:]...)
 			delete(s.listenedPages, p.TargetID)
 			delete(s.consoleListenedPages, p.TargetID)
+			delete(s.dialogListenedPages, p.TargetID)
+			s.invalidateElementRefs(p.TargetID)
 			return
 		}
 	}

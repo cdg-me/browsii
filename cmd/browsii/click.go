@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/spf13/cobra"
 
@@ -11,19 +10,28 @@ import (
 
 func init() {
 	clickCmd := &cobra.Command{
-		Use:   "click <selector>",
+		Use:   "click <ref-or-selector>",
 		Short: "Clicks an element on the active page",
-		Args:  cobra.ExactArgs(1),
-		Run: func(cmd *cobra.Command, args []string) {
-			selector := args[0]
-			payload := map[string]string{"selector": selector}
+		Long: `Clicks an element on the active page.
 
-			_, err := client.SendCommand(port, "click", payload)
+Accepts either a CSS selector or a numeric element ref from 'browsii elements':
+  browsii click #submit-btn
+  browsii click 12
+
+When the element is not found, the error lists similar elements with refs
+that can be used directly in a retry.`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			target := args[0]
+			payload := interactionTarget(target)
+
+			resp, err := client.SendCommand(port, "click", payload)
 			if err != nil {
-				log.Fatalf("Click failed: %v", err)
+				failAction("Click", err)
 			}
 
-			fmt.Printf("Successfully clicked '%s'\n", selector)
+			fmt.Printf("Successfully clicked '%s'\n", target)
+			printDialogsFromBody(resp)
 		},
 	}
 

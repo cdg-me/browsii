@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 )
 
@@ -245,6 +247,23 @@ func (s *Server) handleJS(w http.ResponseWriter, r *http.Request) {
 
 	s.recordAction("js", map[string]interface{}{"script": req.Script})
 	w.Write(jsonBytes) //nolint:errcheck
+
+	// A script can open dialogs (alert/confirm/prompt) synchronously; they are
+	// auto-handled per policy and reported here so the agent sees them.
+	_ = s.maybeReportDialogsAfterBody(w, page)
+}
+
+// maybeReportDialogsAfterBody is maybeReportDialogs for handlers that already
+// wrote a response body: dialogs are appended as a JSON object on a new line
+// rather than replacing the payload.
+func (s *Server) maybeReportDialogsAfterBody(w http.ResponseWriter, page *rod.Page) error {
+	time.Sleep(dialogReportWait)
+	drained := s.drainDialogsFor(page.TargetID)
+	if len(drained) == 0 {
+		return nil
+	}
+	_, _ = fmt.Fprintln(w)
+	return json.NewEncoder(w).Encode(map[string]interface{}{"dialogs": drained})
 }
 
 func (s *Server) handleCookies(w http.ResponseWriter, r *http.Request) {

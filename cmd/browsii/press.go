@@ -18,12 +18,13 @@ func init() {
 			key := args[0]
 			payload := map[string]string{"key": key}
 
-			_, err := client.SendCommand(port, "press", payload)
+			resp, err := client.SendCommand(port, "press", payload)
 			if err != nil {
 				log.Fatalf("Press failed: %v", err)
 			}
 
 			fmt.Printf("Successfully pressed %s\n", key)
+			printDialogsFromBody(resp)
 		},
 	}
 
