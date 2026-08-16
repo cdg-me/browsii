@@ -52,6 +52,59 @@ browsii hover ".dropdown" --port 9222
 browsii scroll --down --pixels 500 --port 9222   # --up / --top / --bottom
 ```
 
+### Element map (refs)
+
+`elements` lists every interactive element with a numbered ref — the preferred
+way to act on a page when you don't know its selectors:
+
+```sh
+browsii elements --port 9222
+# [1] link "Home" -> /home (#logo)
+# [2] textbox "Email address" (#email)
+# [3] button "Sign in" (#signin)
+
+browsii click 3 --port 9222          # bare numbers are element refs
+browsii type 2 "user@example.com" --port 9222
+browsii elements --filter "sign in" --port 9222   # substring over text/name/role/selector
+browsii elements --all --port 9222   # include hidden elements (marked "hidden")
+browsii elements --json --port 9222  # raw JSON with rects, values, checked state
+```
+
+Refs stay valid until the page changes. A stale ref fails fast with a hint to
+re-run `elements`.
+
+### Actionable errors
+
+When click/type/hover fail, the error tells you what to do next — similar
+elements are listed with ready-to-use refs:
+
+```
+Click failed: element not found: .submit
+hint: similar elements listed below — retry with a ref or a corrected selector
+  [3] button "Submit order" selector: body > button:nth-of-type(2)
+  [4] button "Submit payment" (disabled) selector: body > button:nth-of-type(3)
+```
+
+### Dialogs (alert / confirm / prompt / beforeunload)
+
+Dialogs never stall the session: the daemon auto-handles them per policy and
+reports what happened. `click`, `press`, `navigate`, and `js` print any dialog
+they trigger inline.
+
+```sh
+browsii click "#delete" --port 9222
+# Successfully clicked '#delete'
+# Dialog dismissed (confirm): "Delete this item?"
+
+browsii dialogs --port 9222                    # policy + recently handled dialogs
+browsii dialogs --policy accept --port 9222    # confirm() returns true from now on
+browsii dialogs --policy accept --prompt-text "Alice" --port 9222   # prompt() input
+browsii dialogs --clear --port 9222            # forget history
+```
+
+Default policy is `dismiss`: `confirm()` returns false, and a dismissed
+`beforeunload` cancels the navigation that triggered it.
+
 ### Mouse
 
 ```sh
@@ -117,7 +170,7 @@ browsii session save mysession --port 9222
 browsii session resume mysession --port 9222
 browsii session list --port 9222
 browsii session delete mysession --port 9222
-browsii session new --port 9222    # wipe state and start fresh
+browsii session new fresh --port 9222    # wipe state and start fresh
 
 # Recordings capture every action for replay
 browsii record start myflow --port 9222
@@ -127,7 +180,7 @@ browsii record replay myflow --speed 2.0 --port 9222   # 0=instant, 1=realtime
 browsii record list --port 9222
 
 # Isolated browser contexts (incognito)
-browsii context create ctx-a --port 9222
+browsii context create --name ctx-a --port 9222
 browsii context switch ctx-a --port 9222
 browsii context switch default --port 9222
 ```
@@ -287,6 +340,16 @@ c.MouseDrag(100, 100, 400, 300, 20)
 c.MouseRightClick(".item")
 c.MouseDoubleClick(".item")
 
+// Element map (refs)
+list, _ := c.Elements(client.ElementOpts{Filter: "sign in"})
+// list.Elements[i] = client.Element{Ref, Tag, Role, Text, Name, Selector, Visible, ...}
+c.ClickRef(list.Elements[0].Ref)
+c.TypeRef(list.Elements[0].Ref, "hello")
+
+// Dialogs
+state, _ := c.Dialogs()                     // policy + recent history
+c.SetDialogPolicy("accept", "Alice", false) // policy, prompt text, clear history
+
 // Tabs
 c.TabNew("https://example.com")
 tabs, _ := c.TabList()           // []client.Tab{Index, ID, URL, Title}
@@ -431,6 +494,12 @@ To update the fixture, delete the HAR and re-record against the live site with a
 **One active tab.** All commands (click, scrape, js, etc.) operate on the active tab. Use `tab switch` or `TabSwitch` to change it.
 
 **`js` auto-wraps bare expressions.** `browsii js "document.title"` is equivalent to `browsii js "() => document.title"`. Named functions and arrow functions pass through unchanged.
+
+**Element refs are per-page-state.** Refs from `elements` are valid until the page navigates or the DOM changes materially; a stale ref fails fast with a hint to re-run `elements`. When in doubt, re-enumerate — it is cheap.
+
+**Interaction errors are actionable.** Failed click/type/hover return similar elements with refs. Treat the candidate list as the retry menu rather than re-guessing selectors.
+
+**Dialogs are auto-handled, never blocking.** alert/confirm/prompt/beforeunload are resolved per the current policy (default: dismiss) and reported inline by the action that triggered them. A dismissed beforeunload cancels its navigation.
 
 **Capture is destructive.** Calling `network capture stop` / `console capture stop` returns and clears the buffer. A second call returns an empty array.
 

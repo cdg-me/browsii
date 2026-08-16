@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/spf13/cobra"
 
@@ -11,19 +10,22 @@ import (
 
 func init() {
 	hoverCmd := &cobra.Command{
-		Use:   "hover <selector>",
+		Use:   "hover <ref-or-selector>",
 		Short: "Hovers the mouse over an element",
-		Args:  cobra.ExactArgs(1),
+		Long: `Hovers the mouse over an element.
+
+Accepts either a CSS selector or a numeric element ref from 'browsii elements'.`,
+		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			selector := args[0]
-			payload := map[string]string{"selector": selector}
+			target := args[0]
+			payload := interactionTarget(target)
 
 			_, err := client.SendCommand(port, "hover", payload)
 			if err != nil {
-				log.Fatalf("Hover failed: %v", err)
+				failAction("Hover", err)
 			}
 
-			fmt.Printf("Successfully hovered over %s\n", selector)
+			fmt.Printf("Successfully hovered over %s\n", target)
 		},
 	}
 

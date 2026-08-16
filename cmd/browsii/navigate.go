@@ -23,12 +23,13 @@ func init() {
 				payload["waitUntil"] = navWaitUntil
 			}
 
-			_, err := client.SendCommand(port, "navigate", payload)
+			resp, err := client.SendCommand(port, "navigate", payload)
 			if err != nil {
 				log.Fatalf("Navigation failed: %v", err)
 			}
 
 			fmt.Printf("Successfully navigated to %s\n", url)
+			printDialogsFromBody(resp)
 		},
 	}
 
