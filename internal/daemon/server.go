@@ -229,6 +229,14 @@ func (s *Server) Start() error {
 
 	// 1. Configure the Launcher based on mode
 	l := launcher.New()
+	// BROWSII_BIN overrides the browser executable (e.g. system Chrome).
+	// Useful to avoid rod's auto-downloaded unsigned Chromium, which macOS
+	// cannot hold a persistent ScreenCapture permission for (every
+	// screenshot/printToPDF triggers a fresh TCC consent prompt).
+	if bin := os.Getenv("BROWSII_BIN"); bin != "" {
+		l = l.Bin(bin)
+		log.Printf("Using browser from BROWSII_BIN: %s", bin)
+	}
 	if os.Getenv("CI") != "" {
 		l = l.Set("no-sandbox")
 	}

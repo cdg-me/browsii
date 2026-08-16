@@ -32,6 +32,8 @@ browsii stop --port 9222
 
 Modes: `headful` (default, go-rod bundled Chromium, visible), `headless` (bundled, invisible), `user-headless` (system Chrome + persistent profile, headless), `user-headful` (system Chrome + persistent profile, visible).
 
+Set `BROWSII_BIN=/path/to/chrome` to launch any Chromium-based browser instead of the bundled one (signed system builds also avoid macOS ScreenCapture re-consent prompts during screenshots).
+
 The `--port` / `-p` flag defaults to `8000` and is required for every command when using a non-default port.
 
 ### Navigation

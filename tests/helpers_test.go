@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -17,12 +19,32 @@ import (
 )
 
 // newLauncher returns a rod launcher with CI-appropriate flags pre-applied.
+// Prefers a signed system browser (Chrome/Chromium) when available: rod's
+// auto-downloaded Chromium is unsigned, so on macOS every screenshot test
+// triggers a fresh ScreenCapture consent prompt attributed to the parent
+// terminal (unsigned binaries cannot hold a durable TCC grant).
 func newLauncher() *launcher.Launcher {
 	l := launcher.New()
+	if bin := testBrowserBin(); bin != "" {
+		l = l.Bin(bin)
+	}
 	if os.Getenv("CI") != "" {
 		l = l.Set("no-sandbox")
 	}
 	return l
+}
+
+// testBrowserBin resolves the browser binary for tests: BROWSII_TEST_BIN
+// overrides, else the system browser if found, else "" (rod's download —
+// the only option in CI and fresh checkouts).
+func testBrowserBin() string {
+	if bin := os.Getenv("BROWSII_TEST_BIN"); bin != "" {
+		return bin
+	}
+	if p, ok := launcher.LookPath(); ok {
+		return p
+	}
+	return ""
 }
 
 // portCounter provides unique ports across all tests to avoid collisions.
@@ -49,23 +71,54 @@ func startDaemon(t *testing.T, port int) (bin string, cleanup func()) {
 	t.Helper()
 	bin = binPath(t)
 	// Use "daemon" (the hidden blocking subcommand) directly so that
-	// Process.Kill() terminates the actual daemon, not a detached launcher.
+	// cleanup can terminate the actual daemon, not a detached launcher.
 	// "start" spawns a detached child and exits, making cleanup unreliable.
 	startCmd := exec.CommandContext(context.Background(), bin, "daemon", "--port", fmt.Sprintf("%d", port), "--mode", "headless")
+	// Prefer a signed system browser (see newLauncher): the daemon honors
+	// BROWSII_BIN, which keeps local macOS runs free of ScreenCapture prompts.
+	if b := testBrowserBin(); b != "" {
+		startCmd.Env = append(os.Environ(), "BROWSII_BIN="+b)
+	}
+	var stderr bytes.Buffer
+	startCmd.Stderr = &stderr
 	err := startCmd.Start()
 	require.NoError(t, err, "Failed to start daemon")
 
+	// Reap the process exactly once; both the readiness loop and cleanup
+	// observe its exit through doneCh.
+	doneCh := make(chan error, 1)
+	go func() { doneCh <- startCmd.Wait() }()
+
+	// cleanup stops the daemon gracefully: SIGTERM first so its signal
+	// handler closes Chrome, hard Kill only as a fallback after 5s.
+	// (A bare SIGKILL orphans the headless Chrome child of every test.)
 	cleanup = func() {
 		if startCmd.Process != nil {
-			startCmd.Process.Kill() //nolint:errcheck
+			_ = startCmd.Process.Signal(syscall.SIGTERM)
 		}
-		startCmd.Wait() //nolint:errcheck
+		select {
+		case <-doneCh:
+		case <-time.After(5 * time.Second):
+			if startCmd.Process != nil {
+				_ = startCmd.Process.Kill() //nolint:errcheck
+			}
+			<-doneCh
+		}
 	}
 
-	// Poll /ping until the daemon is ready instead of sleeping a fixed duration.
+	// Poll /ping until the daemon is ready instead of sleeping a fixed
+	// duration. The first Chrome launch of a run can take well over 10s on
+	// a cold/busy machine, so the budget is generous (it is only consumed
+	// when actually needed). If the process dies first (e.g. port already
+	// in use), fail fast with its stderr instead of waiting out the clock.
 	pingURL := fmt.Sprintf("http://127.0.0.1:%d/ping", port)
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-doneCh:
+			t.Fatalf("daemon exited before becoming ready: %v\nstderr: %s", err, tailString(stderr.String(), 2000))
+		default:
+		}
 		pollReq, _ := http.NewRequestWithContext(context.Background(), "GET", pingURL, nil)
 		resp, err := http.DefaultClient.Do(pollReq)
 		if err == nil {
@@ -76,8 +129,16 @@ func startDaemon(t *testing.T, port int) (bin string, cleanup func()) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatal("daemon did not become ready within 10 seconds")
+	t.Fatalf("daemon did not become ready within 30 seconds\nstderr: %s", tailString(stderr.String(), 2000))
 	return bin, cleanup
+}
+
+// tailString returns at most the last max bytes of s (prefixed with "...").
+func tailString(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return "..." + s[len(s)-max:]
 }
 
 // runCLI executes a CLI command and returns the combined output as a string.
