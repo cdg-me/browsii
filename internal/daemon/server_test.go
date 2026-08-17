@@ -11,18 +11,24 @@ import (
 	"time"
 )
 
+// TestSSEBroadcastAndBackpressure verifies the SSE contract: a slow client
+// never blocks the daemon, overflowing events are dropped (oldest first)
+// with a visible overflow_warning, and the stream recovers to deliver later
+// events once the client drains.
+//
+// The consumer is held until the burst completes so the overflow cascade is
+// deterministic regardless of scheduling; every read is deadline-guarded so
+// a regression fails the test instead of hanging it.
 func TestSSEBroadcastAndBackpressure(t *testing.T) {
-	// 1. Setup a test Server with a small capacity channel for testing
 	s := NewServer(0, "headless")
 
-	// 2. Start a test HTTP server
+	releaseConsumer := make(chan struct{})
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/events/stream", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 
-		// Use a tiny buffer of 2 to easily trigger overflow
 		clientChan := make(chan StreamEvent, 2)
-
 		s.sseMu.Lock()
 		s.sseClients[clientChan] = struct{}{}
 		s.sseMu.Unlock()
@@ -38,14 +44,19 @@ func TestSSEBroadcastAndBackpressure(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		flusher.Flush()
 
-		ctx := r.Context()
+		// Park until the test has fired the burst; registration already
+		// happened, so broadcasts overflow the buffer deterministically.
+		select {
+		case <-r.Context().Done():
+			return
+		case <-releaseConsumer:
+		}
 
 		for {
 			select {
-			case <-ctx.Done():
+			case <-r.Context().Done():
 				return
 			case event := <-clientChan:
-				time.Sleep(50 * time.Millisecond) // Simulate a slow client to allow the buffer to fill
 				data, _ := json.Marshal(event)
 				w.Write([]byte("data: " + string(data) + "\n\n")) //nolint:errcheck
 				flusher.Flush()
@@ -56,10 +67,8 @@ func TestSSEBroadcastAndBackpressure(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	// 3. Connect a background client bound to a cancelable context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	req, _ := http.NewRequestWithContext(ctx, "GET", ts.URL+"/events/stream", nil)
 	clientResp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -67,32 +76,59 @@ func TestSSEBroadcastAndBackpressure(t *testing.T) {
 	}
 	defer clientResp.Body.Close() //nolint:errcheck
 
-	// 4. Force an overflow by sending 4 events into a capacity 2 channel
+	lines := make(chan string, 16)
+	go func() {
+		scanner := bufio.NewScanner(clientResp.Body)
+		for scanner.Scan() {
+			if text := scanner.Text(); strings.HasPrefix(text, "data: ") {
+				lines <- text
+			}
+		}
+		close(lines)
+	}()
+
+	// collect fails the test on timeout instead of blocking forever.
+	collect := func(n int) []string {
+		t.Helper()
+		deadline := time.After(5 * time.Second)
+		var got []string
+		for len(got) < n {
+			select {
+			case line, ok := <-lines:
+				if !ok {
+					t.Fatalf("stream closed after %d lines, wanted %d: %v", len(got), n, got)
+				}
+				got = append(got, line)
+			case <-deadline:
+				t.Fatalf("timed out collecting %d lines, got %v", n, got)
+			}
+		}
+		return got
+	}
+
+	// Burst while the consumer is parked: buffer fills, e1/e2 are dropped
+	// oldest-first, warnings are enqueued. Final buffer: [warn, warn].
 	s.broadcastEvent(StreamEvent{Type: EventNetworkRequest, Payload: "event 1"})
 	s.broadcastEvent(StreamEvent{Type: EventNetworkRequest, Payload: "event 2"})
-	s.broadcastEvent(StreamEvent{Type: EventNetworkRequest, Payload: "event 3"}) // Triggers overflow
+	s.broadcastEvent(StreamEvent{Type: EventNetworkRequest, Payload: "event 3"})
 	s.broadcastEvent(StreamEvent{Type: EventNetworkRequest, Payload: "event 4"})
 
-	// 5. Read events from the stream (which is the capacity of the channel plus the initial instant read)
-	scanner := bufio.NewScanner(clientResp.Body)
-	var lines []string
+	close(releaseConsumer)
 
-	for len(lines) < 3 && scanner.Scan() {
-		text := scanner.Text()
-		if strings.HasPrefix(text, "data: ") {
-			lines = append(lines, text)
-		}
+	// The consumer delivers the two warnings; receiving both proves the
+	// buffer is empty and the handler is parked in its select.
+	overflow := collect(2)
+	if !strings.Contains(overflow[0], "overflow_warning") || !strings.Contains(overflow[1], "overflow_warning") {
+		t.Fatalf("expected two overflow warnings first, got: %v", overflow)
 	}
 
-	output := strings.Join(lines, "\n")
-
-	// Verification
-	// The buffer should contain an overflow warning because the client was slow/blocked.
-	if !strings.Contains(output, "overflow_warning") {
-		t.Errorf("Expected overflow warning in output, got: %s", output)
+	// Recovery: with the buffer drained, the next event is delivered.
+	s.broadcastEvent(StreamEvent{Type: EventNetworkRequest, Payload: "event 5"})
+	recovered := collect(1)
+	if !strings.Contains(recovered[0], "event 5") {
+		t.Errorf("expected event 5 delivered after drain, got: %v", recovered)
 	}
-
-	if !strings.Contains(output, "event 3") && !strings.Contains(output, "event 4") {
-		t.Errorf("Expected newer events to be preserved, got: %s", output)
+	if strings.Contains(strings.Join(append(overflow, recovered...), "\n"), "event 1") {
+		t.Errorf("dropped events must not be delivered, got: %v %v", overflow, recovered)
 	}
 }
