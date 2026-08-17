@@ -1,0 +1,24 @@
+{
+  "name": "preset_shop_demo",
+  "url": "http://127.0.0.1:8931/shop",
+  "events": [
+    {
+      "t": 120,
+      "action": "navigate",
+      "params": { "url": "http://127.0.0.1:8931/shop" }
+    },
+    {
+      "t": 940,
+      "action": "click",
+      "params": { "selector": "#p2-add" },
+      "fp": { "tag": "button", "role": "button", "text": "Add to cart", "name": "", "href": "", "type": "" },
+      "fpIndex": 1
+    },
+    {
+      "t": 1500,
+      "action": "expect",
+      "params": { "text": "Total: $30" },
+      "timeoutMs": 5000
+    }
+  ]
+}

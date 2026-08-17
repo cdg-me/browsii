@@ -137,6 +137,8 @@ func (s *Server) handleExpect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.recordExpect(&req, timeout)
+
 	start := time.Now()
 	describe := expectDescribe(&req)
 
@@ -168,6 +170,49 @@ func (s *Server) handleExpect(w http.ResponseWriter, r *http.Request) {
 		}
 		time.Sleep(expectPollInterval)
 	}
+}
+
+// recordExpect appends the expect call to the active recording so replays
+// enforce it as a checkpoint. Refs are not stable across sessions, so only
+// selector-based conditions are recorded verbatim; a ref condition is
+// recorded with its resolved selector.
+func (s *Server) recordExpect(req *expectRequest, timeout time.Duration) {
+	if !s.recording {
+		return
+	}
+	params := map[string]interface{}{}
+	if req.Text != "" {
+		params["text"] = req.Text
+	}
+	if req.TextGone != "" {
+		params["textGone"] = req.TextGone
+	}
+	if req.URLPattern != "" {
+		params["urlPattern"] = req.URLPattern
+	}
+	if req.Selector != "" {
+		params["selector"] = req.Selector
+	}
+	if req.Value != "" {
+		params["value"] = req.Value
+	}
+	if req.Request != "" {
+		params["request"] = req.Request
+	}
+	if req.Hidden {
+		params["hidden"] = true
+	}
+	if req.NoConsoleError {
+		params["noConsoleErrors"] = true
+	}
+	s.recMu.Lock()
+	s.recordEvents = append(s.recordEvents, RecordedEvent{
+		T:         time.Since(s.recordStart).Milliseconds(),
+		Action:    "expect",
+		Params:    params,
+		TimeoutMs: int(timeout.Milliseconds()),
+	})
+	s.recMu.Unlock()
 }
 
 // expectCondition returns the polling closure for the request's primary

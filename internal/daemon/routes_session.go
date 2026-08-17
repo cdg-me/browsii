@@ -49,10 +49,20 @@ func (s *Server) handleSessionSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	cookies := []proto.NetworkCookie{}
+	if ap := s.activePage(); ap != nil {
+		if all, err := ap.Cookies(nil); err == nil {
+			for _, c := range all {
+				cookies = append(cookies, *c)
+			}
+		}
+	}
+
 	session := map[string]interface{}{
 		"name":      req.Name,
 		"activeTab": activeTab,
 		"tabs":      tabs,
+		"cookies":   cookies,
 	}
 
 	// Write to ~/.browsii/sessions/<name>.json
@@ -125,10 +135,30 @@ func (s *Server) handleSessionResume(w http.ResponseWriter, r *http.Request) {
 			ScrollX int    `json:"scrollX"`
 			ScrollY int    `json:"scrollY"`
 		} `json:"tabs"`
+		Cookies []proto.NetworkCookie `json:"cookies"`
 	}
 	if err := json.Unmarshal(data, &session); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	if len(session.Cookies) > 0 {
+		params := make([]*proto.NetworkCookieParam, 0, len(session.Cookies))
+		for _, c := range session.Cookies {
+			params = append(params, &proto.NetworkCookieParam{
+				Name:     c.Name,
+				Value:    c.Value,
+				Domain:   c.Domain,
+				Path:     c.Path,
+				Expires:  c.Expires,
+				HTTPOnly: c.HTTPOnly,
+				Secure:   c.Secure,
+				SameSite: c.SameSite,
+			})
+		}
+		if ap := s.activePage(); ap != nil {
+			_ = ap.SetCookies(params)
+		}
 	}
 
 	// Restore tabs first, then close old pages

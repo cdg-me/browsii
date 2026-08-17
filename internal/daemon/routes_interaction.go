@@ -179,7 +179,7 @@ func (s *Server) handleHover(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "hover failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.recordAction("hover", map[string]interface{}{"selector": selector})
+	s.recordInteraction("hover", map[string]interface{}{"selector": selector}, page, selector)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -216,7 +216,7 @@ func (s *Server) handleClick(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "click failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	s.recordAction("click", map[string]interface{}{"selector": selector})
+	s.recordInteraction("click", map[string]interface{}{"selector": selector}, page, selector)
 
 	// Receipt: what did the click actually cause?
 	s.writeEvidence(w, page, urlBefore, sinceSeq, req.NoEvidence)
@@ -267,6 +267,6 @@ func (s *Server) handleType(w http.ResponseWriter, r *http.Request) {
 	// Now insert text as global keystrokes to whatever is focused
 	page.MustInsertText(req.Text)
 
-	s.recordAction("type", map[string]interface{}{"selector": selector, "text": req.Text})
+	s.recordInteraction("type", map[string]interface{}{"selector": selector, "text": req.Text}, page, selector)
 	w.WriteHeader(http.StatusOK)
 }

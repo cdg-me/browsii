@@ -38,11 +38,18 @@ type contextState struct {
 	page    *rod.Page
 }
 
-// RecordedEvent represents a single captured action.
+// RecordedEvent is a single recorded action.
 type RecordedEvent struct {
 	T      int64                  `json:"t"`
 	Action string                 `json:"action"`
 	Params map[string]interface{} `json:"params,omitempty"`
+	// FP describes the target element as it was at record time; replay
+	// uses it to relocate the element when the selector no longer matches.
+	FP *elementIdentity `json:"fp,omitempty"`
+	// FPIndex is the zero-based position of the element among all elements
+	// with the same FP, for pages with repeated identical elements.
+	FPIndex   int `json:"fpIndex,omitempty"`
+	TimeoutMs int `json:"timeoutMs,omitempty"`
 }
 
 // injectJSEntry is a registered pre-load JS script. Script always holds the
@@ -89,8 +96,10 @@ type Server struct {
 	// Recording state
 	recording    bool
 	recordName   string
+	recordURL    string
 	recordStart  time.Time
 	recordEvents []RecordedEvent
+	recordHar    bool
 	recMu        sync.Mutex
 
 	// Stable insertion-order tab list. browser.Pages() returns tabs in
@@ -203,6 +212,27 @@ func (s *Server) recordAction(action string, params map[string]interface{}) {
 		Action: action,
 		Params: params,
 	})
+}
+
+// recordInteraction records an element interaction with its FP, if the
+// selector currently resolves.
+func (s *Server) recordInteraction(action string, params map[string]interface{}, page *rod.Page, selector string) {
+	if !s.recording {
+		return
+	}
+	ev := RecordedEvent{
+		T:      time.Since(s.recordStart).Milliseconds(),
+		Action: action,
+		Params: params,
+	}
+	if id, idx, err := liveFingerprintEx(page, selector); err == nil && id != nil {
+		fp := *id
+		ev.FP = &fp
+		ev.FPIndex = idx
+	}
+	s.recMu.Lock()
+	s.recordEvents = append(s.recordEvents, ev)
+	s.recMu.Unlock()
 }
 
 // NewServer creates a new Daemon configuration.
