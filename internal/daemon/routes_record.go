@@ -1,10 +1,11 @@
 package daemon
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,15 +22,26 @@ func (s *Server) registerRecordRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/record/replay", s.handleRecordReplay)
 	mux.HandleFunc("/record/list", s.handleRecordList)
 	mux.HandleFunc("/record/delete", s.handleRecordDelete)
+	mux.HandleFunc("/record/export", s.handleRecordExport)
 }
 
-// /record/start endpoint — begins recording actions
+func recordingPath(name string) string {
+	if filepath.IsAbs(name) {
+		return name
+	}
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".browsii", "recordings", name+".json")
+}
+
+// /record/start — begins recording actions.
+// captureHar also records network traffic to a HAR file alongside the
+// recording, written when recording stops.
 func (s *Server) handleRecordStart(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name string `json:"name"`
+		Name       string `json:"name"`
+		CaptureHar bool   `json:"captureHar"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !decodeBodyRequired(w, r, &req) {
 		return
 	}
 
@@ -38,292 +50,544 @@ func (s *Server) handleRecordStart(w http.ResponseWriter, r *http.Request) {
 	s.recordName = req.Name
 	s.recordStart = time.Now()
 	s.recordEvents = nil
+	s.recordHar = req.CaptureHar
 	s.recMu.Unlock()
+
+	if req.CaptureHar {
+		harPath := strings.TrimSuffix(recordingPath(req.Name), ".json") + ".har"
+		if err := s.startHarCapture(harPath); err != nil {
+			s.recMu.Lock()
+			s.recording = false
+			s.recMu.Unlock()
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	recordURL := ""
+	if p := s.activePage(); p != nil {
+		if href, err := s.pageURL(p); err == nil {
+			recordURL = href
+		}
+	}
+	s.recMu.Lock()
+	s.recordURL = recordURL
+	s.recMu.Unlock()
+
+	if req.CaptureHar {
+		harPath := strings.TrimSuffix(recordingPath(req.Name), ".json") + ".har"
+		if err := s.startHarCapture(harPath); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 
 	w.WriteHeader(http.StatusOK)
 }
 
-// /record/stop endpoint — stops recording and saves to disk
+// /record/stop — stops recording and saves to disk.
 func (s *Server) handleRecordStop(w http.ResponseWriter, r *http.Request) {
 	s.recMu.Lock()
 	s.recording = false
 	name := s.recordName
 	events := s.recordEvents
+	captureHar := s.recordHar
+	recordURL := s.recordURL
+	s.recordHar = false
 	s.recMu.Unlock()
+
+	var harPath string
+	if captureHar {
+		harPath = strings.TrimSuffix(recordingPath(name), ".json") + ".har"
+		if err := s.stopHarCapture(harPath); err != nil {
+			http.Error(w, "har capture: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
 
 	recording := map[string]interface{}{
 		"name":   name,
+		"url":    recordURL,
 		"events": events,
 	}
-
-	var recFile string
-	if filepath.IsAbs(name) {
-		recFile = name
-		if err := os.MkdirAll(filepath.Dir(recFile), 0755); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-	} else {
-		homeDir, _ := os.UserHomeDir()
-		recDir := filepath.Join(homeDir, ".browsii", "recordings")
-		if err := os.MkdirAll(recDir, 0755); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		recFile = filepath.Join(recDir, name+".json")
+	if harPath != "" {
+		recording["har"] = harPath
 	}
 
-	data, _ := json.MarshalIndent(recording, "", "  ")
+	recFile := recordingPath(name)
+	if err := os.MkdirAll(filepath.Dir(recFile), 0755); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data, err := json.MarshalIndent(recording, "", "  ")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	if err := os.WriteFile(recFile, data, 0644); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	buf, err := json.Marshal(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"name":   name,
 		"events": len(events),
+		"har":    harPath,
 	})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Write(buf) //nolint:errcheck
 }
 
-// /record/replay endpoint — replays a recorded session
+// startHarCapture begins a network capture that includes response bodies,
+// written as HAR to path on stop.
+func (s *Server) startHarCapture(path string) error {
+	_, err := sendLocal(func() (*http.Response, error) {
+		return postLocal(fmt.Sprintf("http://127.0.0.1:%d/network/capture/start", s.port),
+			`{"include":["request-headers","request-body","response-headers","response-body","response-timing","response-size","request-timestamp"],"format":"har","output":"`+path+`"}`)
+	})
+	return err
+}
+
+// stopHarCapture ends the capture and verifies the HAR file exists. Capture
+// commands are not recorded as events.
+func (s *Server) stopHarCapture(path string) error {
+	s.recMu.Lock()
+	s.recording = false
+	s.recMu.Unlock()
+
+	if _, err := sendLocal(func() (*http.Response, error) {
+		return postLocal(fmt.Sprintf("http://127.0.0.1:%d/network/capture/stop", s.port), "")
+	}); err != nil {
+		return err
+	}
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("no har written to %s", path)
+	}
+	return nil
+}
+
+// postLocal issues a POST with a short timeout against this daemon.
+func postLocal(url, body string) (*http.Response, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var rdr io.Reader
+	if body != "" {
+		rdr = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, rdr)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return http.DefaultClient.Do(req)
+}
+
+// sendLocal executes an HTTP call against this daemon's own API. Used by
+// record flows that compose existing endpoints.
+func sendLocal(do func() (*http.Response, error)) ([]byte, error) {
+	resp, err := do()
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%s", strings.TrimSpace(string(body)))
+	}
+	return body, nil
+}
+
+// replayReport summarizes a replay run.
+type replayReport struct {
+	Name        string            `json:"name"`
+	Steps       int               `json:"steps"`
+	Checkpoints replayCheckpoints `json:"checkpoints"`
+	Healed      []replayHealNote  `json:"healed,omitempty"`
+	DurationMs  int64             `json:"durationMs"`
+	FailedStep  int               `json:"failedStep,omitempty"`
+	Error       string            `json:"error,omitempty"`
+}
+
+type replayCheckpoints struct {
+	Total  int `json:"total"`
+	Passed int `json:"passed"`
+}
+
+type replayHealNote struct {
+	Step int    `json:"step"`
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// /record/replay — replays a recorded session.
+//
+// name    recording name or absolute path
+// speed   0 = instant (default), 1 = recorded timing, 2 = half timing
+// live    skip the recorded HAR snapshot; requests hit the network
+// session resume this saved session before replaying
 func (s *Server) handleRecordReplay(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name  string  `json:"name"`
-		Speed float64 `json:"speed"` // 0 = instant, 1 = real-time, 2 = 2x
+		Name    string  `json:"name"`
+		Speed   float64 `json:"speed"`
+		Live    bool    `json:"live"`
+		Session string  `json:"session"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !decodeBodyRequired(w, r, &req) {
 		return
 	}
 
-	var recFile string
-	if filepath.IsAbs(req.Name) {
-		recFile = req.Name
-	} else {
-		homeDir, _ := os.UserHomeDir()
-		recFile = filepath.Join(homeDir, ".browsii", "recordings", req.Name+".json")
-	}
-
-	data, err := os.ReadFile(recFile)
+	data, err := os.ReadFile(recordingPath(req.Name))
 	if err != nil {
 		http.Error(w, fmt.Sprintf("recording %q not found", req.Name), http.StatusNotFound)
 		return
 	}
 
 	var recording struct {
+		URL    string          `json:"url"`
+		HAR    string          `json:"har"`
 		Events []RecordedEvent `json:"events"`
 	}
 	if err := json.Unmarshal(data, &recording); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, "invalid recording: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Disable recording during replay to avoid re-recording
-	wasRecording := s.recording
-	s.recording = false
+	report := replayReport{Name: req.Name, Steps: len(recording.Events)}
+	start := time.Now()
+	defer func() {
+		report.DurationMs = time.Since(start).Milliseconds()
+		s.writeReplayReport(w, &report)
+	}()
 
-	for i, event := range recording.Events {
-		// Catch panics per-action to avoid crashing the whole replay
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("Replay of action %q panicked: %v", event.Action, r)
-				}
-			}()
-
-			// Apply timing delay
-			if req.Speed > 0 && i > 0 {
-				delay := event.T - recording.Events[i-1].T
-				time.Sleep(time.Duration(float64(delay)/req.Speed) * time.Millisecond)
-			}
-
-			// Dispatch the action directly
-			page := s.activePage()
-			if page == nil {
-				return
-			}
-
-			switch event.Action {
-			case "tab_new":
-				if url, ok := event.Params["url"].(string); ok {
-					s.activePg = s.browser.MustPage(url).MustWaitLoad()
-					s.trackPage(s.activePg)
-				}
-			case "tab_close":
-				s.untrackPage(page)
-				page.MustClose()
-				s.activePg = nil
-			case "tab_switch":
-				if idxF, ok := event.Params["index"].(float64); ok {
-					pages := s.orderedPages()
-					idx := int(idxF)
-					if idx >= 0 && idx < len(pages) {
-						s.activePg = pages[idx]
-						s.activePg.MustActivate()
-					}
-				}
-			case "mouse_move":
-				if x, ok := event.Params["x"].(float64); ok {
-					if y, ok := event.Params["y"].(float64); ok {
-						page.Mouse.MustMoveTo(x, y)
-					}
-				}
-			case "mouse_drag":
-				x1, _ := event.Params["x1"].(float64)
-				y1, _ := event.Params["y1"].(float64)
-				x2, _ := event.Params["x2"].(float64)
-				y2, _ := event.Params["y2"].(float64)
-				stepsF, ok := event.Params["steps"].(float64)
-				steps := 10
-				if ok && stepsF > 0 {
-					steps = int(stepsF)
-				}
-				page.Mouse.MustMoveTo(x1, y1)
-				page.Mouse.MustDown("left")
-				for i := 1; i <= steps; i++ {
-					t := float64(i) / float64(steps)
-					page.Mouse.MustMoveTo(x1+t*(x2-x1), y1+t*(y2-y1))
-				}
-				page.Mouse.MustUp("left")
-			case "mouse_rightclick":
-				if sel, ok := event.Params["selector"].(string); ok {
-					el := page.MustElement(sel)
-					el.MustScrollIntoView()
-					box := el.MustShape().Box()
-					page.Mouse.MustMoveTo(box.X+box.Width/2, box.Y+box.Height/2)
-					page.Mouse.MustClick("right")
-				}
-			case "mouse_doubleclick":
-				if sel, ok := event.Params["selector"].(string); ok {
-					js := `(sel) => { document.querySelector(sel).dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true})); }`
-					page.MustEval(js, sel)
-				}
-			case "upload":
-				sel, ok1 := event.Params["selector"].(string)
-				filesI, ok2 := event.Params["files"].([]interface{})
-				if ok1 && ok2 {
-					var files []string
-					for _, f := range filesI {
-						if fs, ok := f.(string); ok {
-							files = append(files, fs)
-						}
-					}
-					page.MustElement(sel).MustSetFiles(files...)
-				}
-			case "screenshot":
-				filename, _ := event.Params["filename"].(string)
-				el, _ := event.Params["element"].(string)
-				fullPage, _ := event.Params["fullPage"].(bool)
-				if el != "" {
-					data, _ := page.MustElement(el).Screenshot(proto.PageCaptureScreenshotFormatPng, 0)
-					os.WriteFile(filename, data, 0644) //nolint:errcheck
-				} else if fullPage {
-					page.MustScreenshotFullPage(filename)
-				} else {
-					page.MustScreenshot(filename)
-				}
-			case "pdf":
-				if filename, ok := event.Params["filename"].(string); ok {
-					pdfData, _ := page.PDF(&proto.PagePrintToPDF{})
-					data, _ := io.ReadAll(pdfData)
-					os.WriteFile(filename, data, 0644) //nolint:errcheck
-				}
-			case "js":
-				if script, ok := event.Params["script"].(string); ok {
-					page.MustEval(script)
-				}
-			case "network_throttle":
-				lat, _ := event.Params["latency"].(float64)
-				dl, _ := event.Params["download"].(float64)
-				up, _ := event.Params["upload"].(float64)
-				proto.NetworkEmulateNetworkConditions{Offline: false, Latency: lat, DownloadThroughput: dl, UploadThroughput: up}.Call(page) //nolint:errcheck
-			case "network_mock":
-				pat, _ := event.Params["pattern"].(string)
-				body, _ := event.Params["body"].(string)
-				ct, _ := event.Params["contentType"].(string)
-				sc, _ := event.Params["statusCode"].(float64)
-				if sc == 0 {
-					sc = 200
-				}
-				router := page.HijackRequests()
-				router.MustAdd(pat, func(ctx *rod.Hijack) {
-					ctx.Response.SetBody(body)
-					if ct != "" {
-						ctx.Response.SetHeader("Content-Type", ct)
-					}
-					ctx.Response.Payload().ResponseCode = int(sc)
-				})
-				go router.Run()
-			case "navigate":
-				if url, ok := event.Params["url"].(string); ok {
-					page.MustNavigate(url).MustWaitLoad()
-				}
-			case "click":
-				if sel, ok := event.Params["selector"].(string); ok {
-					page.MustElement(sel).MustClick()
-				}
-			case "type":
-				sel, _ := event.Params["selector"].(string)
-				text, _ := event.Params["text"].(string)
-				if sel != "" {
-					page.MustElement(sel)
-					js := fmt.Sprintf(`() => {
-					const el = document.querySelector('%s');
-					if (el) { el.value = ''; el.focus(); }
-				}`, sel)
-					page.MustEval(js)
-					page.MustInsertText(text)
-				}
-			case "scroll":
-				dir, _ := event.Params["direction"].(string)
-				pixels := 300
-				if p, ok := event.Params["pixels"].(float64); ok && p > 0 {
-					pixels = int(p)
-				}
-				switch dir {
-				case "down":
-					page.MustEval(fmt.Sprintf("() => window.scrollBy(0, %d)", pixels))
-				case "up":
-					page.MustEval(fmt.Sprintf("() => window.scrollBy(0, -%d)", pixels))
-				case "top":
-					page.MustEval("() => window.scrollTo(0, 0)")
-				case "bottom":
-					page.MustEval("() => window.scrollTo(0, document.body.scrollHeight)")
-				}
-			case "hover":
-				if sel, ok := event.Params["selector"].(string); ok {
-					page.MustElement(sel).MustHover()
-				}
-			case "press":
-				if key, ok := event.Params["key"].(string); ok {
-					keys := parseKeyCombo(key)
-					ka := page.KeyActions()
-					for _, k := range keys {
-						ka = ka.Press(k)
-					}
-					ka.MustDo()
-				}
-			case "reload":
-				page.MustReload().MustWaitLoad()
-			case "back":
-				page.MustNavigateBack().MustWaitLoad()
-			case "forward":
-				page.MustNavigateForward().MustWaitLoad()
-			}
-		}()
+	if req.Session != "" {
+		if err := s.resumeSession(req.Session); err != nil {
+			report.Error = "session " + req.Session + ": " + err.Error()
+			return
+		}
 	}
 
-	s.recording = wasRecording
-	w.WriteHeader(http.StatusOK)
+	snapshotLoaded := false
+	if !req.Live {
+		if recording.HAR != "" {
+			if _, err := os.Stat(recording.HAR); err == nil {
+				if err := s.loadSnapshot(recording.HAR); err != nil {
+					report.Error = "har " + recording.HAR + ": " + err.Error()
+					return
+				}
+				snapshotLoaded = true
+			}
+		}
+	} else {
+		// A snapshot left over from a previous replay would silently defeat
+		// --live; clear it.
+		s.clearSnapshot()
+	}
+
+	wasRecording := s.recording
+	s.recording = false
+	defer func() { s.recording = wasRecording }()
+
+	for i := range recording.Events {
+		ev := recording.Events[i]
+		if req.Speed > 0 && i > 0 {
+			delay := ev.T - recording.Events[i-1].T
+			if delay > 0 {
+				time.Sleep(time.Duration(float64(delay)/req.Speed) * time.Millisecond)
+			}
+		}
+
+		page := s.activePage()
+		if page == nil {
+			report.FailedStep = i + 1
+			report.Error = "no active page"
+			return
+		}
+
+		if ev.Action == "expect" {
+			report.Checkpoints.Total++
+			ok, msg := s.replayExpect(page, ev)
+			if !ok {
+				report.FailedStep = i + 1
+				report.Error = msg
+				return
+			}
+			report.Checkpoints.Passed++
+			continue
+		}
+
+		err := s.replayActionSafely(page, ev, &report, i+1)
+		if err != nil {
+			report.FailedStep = i + 1
+			report.Error = err.Error()
+			return
+		}
+	}
+
+	if snapshotLoaded {
+		s.clearSnapshot()
+	}
 }
 
-// /record/list endpoint — returns available recordings
+// replayActionSafely runs replayAction, converting panics into errors so a
+// failing step is reported instead of aborting the response.
+func (s *Server) replayActionSafely(page *rod.Page, ev RecordedEvent, report *replayReport, step int) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	return s.replayAction(page, ev, report, step)
+}
+
+// replayExpect runs a recorded expect event through the same wait loop the
+// /expect endpoint uses.
+func (s *Server) replayExpect(page *rod.Page, ev RecordedEvent) (bool, string) {
+	req := expectRequest{
+		Text:           paramString(ev.Params, "text"),
+		TextGone:       paramString(ev.Params, "textGone"),
+		URLPattern:     paramString(ev.Params, "urlPattern"),
+		Selector:       paramString(ev.Params, "selector"),
+		Hidden:         paramBool(ev.Params, "hidden"),
+		Ref:            0,
+		Value:          paramString(ev.Params, "value"),
+		Request:        paramString(ev.Params, "request"),
+		NoConsoleError: paramBool(ev.Params, "noConsoleErrors"),
+		TimeoutMs:      ev.TimeoutMs,
+	}
+	cond, aerr := s.expectCondition(page, &req, s.currentEventSeq())
+	if aerr != nil {
+		return false, aerr.Message
+	}
+	timeout := expectDefaultTimeout
+	if req.TimeoutMs > 0 {
+		timeout = time.Duration(req.TimeoutMs) * time.Millisecond
+	}
+	start := time.Now()
+	for {
+		ok, _ := cond()
+		if ok {
+			return true, ""
+		}
+		if time.Since(start) >= timeout {
+			return false, fmt.Sprintf("checkpoint failed: %s — timed out after %dms",
+				expectDescribe(&req), timeout.Milliseconds())
+		}
+		time.Sleep(expectPollInterval)
+	}
+}
+
+func paramString(p map[string]interface{}, key string) string {
+	v, _ := p[key].(string)
+	return v
+}
+
+func paramBool(p map[string]interface{}, key string) bool {
+	v, _ := p[key].(bool)
+	return v
+}
+
+// replayAction executes one non-expect event. Element actions resolve their
+// selector through the recorded fingerprint: when the selector no longer
+// matches, the element is relocated by fingerprint and occurrence index, and
+// the substitution is noted in the report.
+func (s *Server) replayAction(page *rod.Page, ev RecordedEvent, report *replayReport, step int) error {
+	selector := paramString(ev.Params, "selector")
+
+	switch ev.Action {
+	case "click", "hover", "type":
+		if selector != "" {
+			resolved, err := s.resolveRecordedTarget(page, ev, selector, report, step)
+			if err != nil {
+				return err
+			}
+			selector = resolved
+		}
+	}
+
+	switch ev.Action {
+	case "navigate":
+		page.MustNavigate(paramString(ev.Params, "url")).MustWaitLoad()
+	case "click":
+		el, aerr := s.findElement(page, selector)
+		if aerr != nil {
+			return fmt.Errorf("%s", aerr.Message)
+		}
+		if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
+			return err
+		}
+	case "type":
+		if _, aerr := s.findElement(page, selector); aerr != nil {
+			return fmt.Errorf("%s", aerr.Message)
+		}
+		_, _ = page.Eval(`(sel) => {
+			const el = document.querySelector(sel);
+			if (el) { el.value = ''; el.focus(); }
+		}`, selector)
+		page.MustInsertText(paramString(ev.Params, "text"))
+	case "hover":
+		el, aerr := s.findElement(page, selector)
+		if aerr != nil {
+			return fmt.Errorf("%s", aerr.Message)
+		}
+		if err := el.Hover(); err != nil {
+			return err
+		}
+	case "press":
+		ka := page.KeyActions()
+		for _, k := range parseKeyCombo(paramString(ev.Params, "key")) {
+			ka = ka.Press(k)
+		}
+		ka.MustDo()
+	case "reload":
+		page.MustReload().MustWaitLoad()
+	case "back":
+		page.MustNavigateBack().MustWaitLoad()
+	case "forward":
+		page.MustNavigateForward().MustWaitLoad()
+	case "scroll":
+		dir := paramString(ev.Params, "direction")
+		pixels := 300
+		if p, ok := ev.Params["pixels"].(float64); ok && p > 0 {
+			pixels = int(p)
+		}
+		switch dir {
+		case "down":
+			page.MustEval(fmt.Sprintf("() => window.scrollBy(0, %d)", pixels))
+		case "up":
+			page.MustEval(fmt.Sprintf("() => window.scrollBy(0, -%d)", pixels))
+		case "top":
+			page.MustEval("() => window.scrollTo(0, 0)")
+		case "bottom":
+			page.MustEval("() => window.scrollTo(0, document.body.scrollHeight)")
+		}
+	case "js":
+		page.MustEval(wrapScript(paramString(ev.Params, "script")))
+	case "tab_new":
+		s.activePg = s.browser.MustPage(paramString(ev.Params, "url")).MustWaitLoad()
+		s.trackPage(s.activePg)
+	case "tab_close":
+		s.untrackPage(page)
+		page.MustClose()
+		s.activePg = nil
+	case "tab_switch":
+		if idxF, ok := ev.Params["index"].(float64); ok {
+			pages := s.orderedPages()
+			idx := int(idxF)
+			if idx >= 0 && idx < len(pages) {
+				s.activePg = pages[idx]
+				s.activePg.MustActivate()
+			}
+		}
+	case "mouse_move":
+		if x, ok := ev.Params["x"].(float64); ok {
+			if y, ok := ev.Params["y"].(float64); ok {
+				page.Mouse.MustMoveTo(x, y)
+			}
+		}
+	case "mouse_rightclick":
+		el := page.MustElement(selector)
+		el.MustScrollIntoView()
+		box := el.MustShape().Box()
+		page.Mouse.MustMoveTo(box.X+box.Width/2, box.Y+box.Height/2)
+		page.Mouse.MustClick("right")
+	case "mouse_doubleclick":
+		page.MustEval(`(sel) => {
+			document.querySelector(sel).dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true}));
+		}`, selector)
+	case "upload":
+		var files []string
+		if list, ok := ev.Params["files"].([]interface{}); ok {
+			for _, f := range list {
+				if fs, ok := f.(string); ok {
+					files = append(files, fs)
+				}
+			}
+		}
+		page.MustElement(selector).MustSetFiles(files...)
+	case "screenshot":
+		filename := paramString(ev.Params, "filename")
+		el := paramString(ev.Params, "element")
+		if el != "" {
+			data, err := page.MustElement(el).Screenshot(proto.PageCaptureScreenshotFormatPng, 0)
+			if err == nil {
+				_ = os.WriteFile(filename, data, 0644)
+			}
+		} else if paramBool(ev.Params, "fullPage") {
+			page.MustScreenshotFullPage(filename)
+		} else {
+			page.MustScreenshot(filename)
+		}
+	case "pdf":
+		if filename := paramString(ev.Params, "filename"); filename != "" {
+			pdfData, _ := page.PDF(&proto.PagePrintToPDF{})
+			data, _ := io.ReadAll(pdfData)
+			_ = os.WriteFile(filename, data, 0644)
+		}
+	case "network_throttle":
+		lat, _ := ev.Params["latency"].(float64)
+		dl, _ := ev.Params["download"].(float64)
+		up, _ := ev.Params["upload"].(float64)
+		_ = proto.NetworkEmulateNetworkConditions{Offline: false, Latency: lat, DownloadThroughput: dl, UploadThroughput: up}.Call(page)
+	case "network_mock":
+		pat := paramString(ev.Params, "pattern")
+		router := page.HijackRequests()
+		router.MustAdd(pat, func(ctx *rod.Hijack) {
+			ctx.Response.SetBody(paramString(ev.Params, "body"))
+			if ct := paramString(ev.Params, "contentType"); ct != "" {
+				ctx.Response.SetHeader("Content-Type", ct)
+			}
+			sc, _ := ev.Params["statusCode"].(float64)
+			if sc == 0 {
+				sc = 200
+			}
+			ctx.Response.Payload().ResponseCode = int(sc)
+		})
+		go router.Run()
+	default:
+		return fmt.Errorf("unsupported action %q", ev.Action)
+	}
+	return nil
+}
+
+// resolveRecordedTarget verifies the recorded selector against the recorded
+// fingerprint. On mismatch the element is relocated by fingerprint plus
+// occurrence index; the substitution is recorded in the report. Relocation
+// failure returns an error naming the original element.
+func (s *Server) resolveRecordedTarget(page *rod.Page, ev RecordedEvent, selector string, report *replayReport, step int) (string, error) {
+	if ev.FP == nil {
+		return selector, nil
+	}
+	want := fingerprintParts(ev.FP.Tag, ev.FP.Role, ev.FP.Text, ev.FP.Name, ev.FP.Href, ev.FP.Type)
+	if live, err := liveFingerprint(page, selector); err == nil && live == want {
+		return selector, nil
+	}
+	if to, ok := s.findByFingerprint(page, want, ev.FPIndex); ok {
+		report.Healed = append(report.Healed, replayHealNote{Step: step, From: selector, To: to})
+		return to, nil
+	}
+	label := ev.FP.Text
+	if label == "" {
+		label = ev.FP.Name
+	}
+	return "", fmt.Errorf("element no longer matches: was %s %q → %s", ev.FP.Role, label, selector)
+}
+
+// writeReplayReport writes the replay outcome. Failures use 417 to match
+// expect semantics; success is 200 with the full report.
+func (s *Server) writeReplayReport(w http.ResponseWriter, report *replayReport) {
+	status := http.StatusOK
+	if report.Error != "" {
+		status = http.StatusExpectationFailed
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(report)
+}
+
+// /record/list — returns available recordings.
 func (s *Server) handleRecordList(w http.ResponseWriter, r *http.Request) {
 	homeDir, _ := os.UserHomeDir()
 	recDir := filepath.Join(homeDir, ".browsii", "recordings")
@@ -353,36 +617,157 @@ func (s *Server) handleRecordList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	buf, err := json.Marshal(recordings)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Write(buf) //nolint:errcheck
+	_ = json.NewEncoder(w).Encode(recordings)
 }
 
-// /record/delete endpoint — removes a recording
+// /record/delete — removes a recording and its HAR if present.
 func (s *Server) handleRecordDelete(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if !decodeBodyRequired(w, r, &req) {
 		return
 	}
 
-	var recFile string
-	if filepath.IsAbs(req.Name) {
-		recFile = req.Name
-	} else {
-		homeDir, _ := os.UserHomeDir()
-		recFile = filepath.Join(homeDir, ".browsii", "recordings", req.Name+".json")
-	}
-
+	recFile := recordingPath(req.Name)
 	if err := os.Remove(recFile); err != nil {
 		http.Error(w, fmt.Sprintf("recording %q not found", req.Name), http.StatusNotFound)
 		return
 	}
+	harPath := strings.TrimSuffix(recFile, ".json") + ".har"
+	if _, err := os.Stat(harPath); err == nil {
+		_ = os.Remove(harPath)
+	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// /record/export — writes a Playwright TypeScript spec for the recording.
+func (s *Server) handleRecordExport(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+		Out  string `json:"out"`
+	}
+	if !decodeBodyRequired(w, r, &req) {
+		return
+	}
+
+	data, err := os.ReadFile(recordingPath(req.Name))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("recording %q not found", req.Name), http.StatusNotFound)
+		return
+	}
+
+	var recording struct {
+		URL    string          `json:"url"`
+		HAR    string          `json:"har"`
+		Events []RecordedEvent `json:"events"`
+	}
+	if err := json.Unmarshal(data, &recording); err != nil {
+		http.Error(w, "invalid recording: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	spec := buildPlaywrightSpec(recording.URL, recording.HAR, recording.Events)
+
+	out := req.Out
+	if out == "" {
+		out = strings.TrimSuffix(recordingPath(req.Name), ".json") + ".spec.ts"
+	}
+	if err := os.WriteFile(out, []byte(spec), 0644); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"path": out})
+}
+
+// resumeSession restores a saved session by name, without the HTTP layer.
+func (s *Server) resumeSession(name string) error {
+	homeDir, _ := os.UserHomeDir()
+	sessFile := filepath.Join(homeDir, ".browsii", "sessions", name+".json")
+	data, err := os.ReadFile(sessFile)
+	if err != nil {
+		return fmt.Errorf("not found")
+	}
+
+	var session struct {
+		ActiveTab int `json:"activeTab"`
+		Tabs      []struct {
+			URL     string `json:"url"`
+			ScrollX int    `json:"scrollX"`
+			ScrollY int    `json:"scrollY"`
+		} `json:"tabs"`
+	}
+	if err := json.Unmarshal(data, &session); err != nil {
+		return err
+	}
+
+	oldPages, _ := s.browser.Pages()
+	s.pageOrder = nil
+	s.listenedPages = make(map[proto.TargetTargetID]struct{})
+	s.consoleListenedPages = make(map[proto.TargetTargetID]struct{})
+	for i, tab := range session.Tabs {
+		page := s.browser.MustPage(tab.URL).MustWaitLoad()
+		s.trackPage(page)
+		if tab.ScrollX != 0 || tab.ScrollY != 0 {
+			page.MustEval(fmt.Sprintf("() => window.scrollTo(%d, %d)", tab.ScrollX, tab.ScrollY))
+		}
+		if i == session.ActiveTab {
+			s.activePg = page
+			page.MustActivate()
+		}
+	}
+	for _, p := range oldPages {
+		p.MustClose()
+	}
+	return nil
+}
+
+// clearSnapshot stops any active snapshot router without touching the HTTP
+// layer.
+func (s *Server) clearSnapshot() {
+	s.mu.Lock()
+	prev := s.snapshotRouter
+	s.snapshotRouter = nil
+	s.mu.Unlock()
+	if prev != nil {
+		prev.Stop() //nolint:errcheck
+	}
+}
+
+// loadSnapshot installs the HAR snapshot router for offline replay.
+func (s *Server) loadSnapshot(harPath string) error {
+	data, err := os.ReadFile(harPath)
+	if err != nil {
+		return err
+	}
+	var har harSnapshot
+	if err := json.Unmarshal(data, &har); err != nil {
+		return err
+	}
+	urlMap := make(map[string]snapshotEntry, len(har.Log.Entries))
+	for _, e := range har.Log.Entries {
+		if e.Request.URL == "" {
+			continue
+		}
+		var body []byte
+		if e.Response.Content.Encoding == "base64" {
+			body, _ = base64.StdEncoding.DecodeString(e.Response.Content.Text)
+		} else {
+			body = []byte(e.Response.Content.Text)
+		}
+		status := e.Response.Status
+		if status == 0 {
+			status = 200
+		}
+		urlMap[e.Request.URL] = snapshotEntry{
+			status:      status,
+			contentType: e.Response.Content.MimeType,
+			body:        body,
+		}
+	}
+	s.replaceSnapshotRouter(urlMap)
+	return nil
 }

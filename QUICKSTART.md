@@ -223,9 +223,10 @@ browsii session new fresh --port 9222    # wipe state and start fresh
 
 # Recordings capture every action for replay
 browsii record start myflow --port 9222
-# ... perform actions ...
+# ... perform actions (expect calls are recorded as checkpoints) ...
 browsii record stop --port 9222
-browsii record replay myflow --speed 2.0 --port 9222   # 0=instant, 1=realtime
+browsii record replay myflow --port 9222   # instant by default
+browsii record export myflow --port 9222   # Playwright spec
 browsii record list --port 9222
 
 # Isolated browser contexts (incognito)
@@ -557,6 +558,8 @@ To update the fixture, delete the HAR and re-record against the live site with a
 **Dialogs are auto-handled, never blocking.** alert/confirm/prompt/beforeunload are resolved per the current policy (default: dismiss) and reported inline by the action that triggered them. A dismissed beforeunload cancels its navigation.
 
 **Actions carry receipts.** click/press/navigate append what the action caused: navigation, requests (up to 5 samples), dialogs, console-error count. `expect` then independently asserts outcomes — the two compose into a verifiable act→check loop.
+
+**Replay is fingerprint-healed, not selector-bound.** Recordings store each target element's fingerprint (tag, role, text, name, href) plus its position among identical siblings. On replay, a selector that no longer matches its element is healed by relocating the fingerprint; the substitution is reported (`healed: step 2 #p2-add → …`). A semantic change — the element is gone or relabelled — fails at that step with the original identity. Record with `--capture-har` and replay runs fully offline against the recorded traffic (`--live` opts out); `--session <name>` restores a saved login first. `record export` writes a Playwright spec with role-based locators that keeps the same healing properties.
 
 **Capture is destructive.** Calling `network capture stop` / `console capture stop` returns and clears the buffer. A second call returns an empty array.
 

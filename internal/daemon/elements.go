@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -211,14 +212,24 @@ var elementsJS = `() => {` + elementsHelpersJS + `
 	return JSON.stringify(out);
 }`
 
-// liveElementJS returns the identity fields of the element currently matching
-// the given selector, or null when the selector matches nothing. Shares the
-// helper functions with the enumeration so fingerprints are comparable.
+// liveElementJS returns [identity, index] for the element currently matching
+// the selector, or null when it matches nothing. Index is the element's
+// position among all elements with the same identity (0 when unique) —
+// needed to disambiguate repeated elements such as identically-labelled
+// buttons in a product list.
 var liveElementJS = `(sel) => {` + elementsHelpersJS + `
 	const el = document.querySelector(sel);
 	if (!el) return null;
 	const tag = el.tagName.toLowerCase();
-	return JSON.stringify(identityOf(el, tag));
+	const id = identityOf(el, tag);
+	const key = JSON.stringify(id);
+	let idx = 0;
+	for (const other of document.querySelectorAll('a, button, input, select, textarea, summary, label, [role], [tabindex], [onclick]')) {
+		if (other === el) break;
+		const otag = other.tagName.toLowerCase();
+		if (JSON.stringify(identityOf(other, otag)) === key) idx++;
+	}
+	return JSON.stringify([id, idx]);
 }`
 
 // enumerateElements runs the in-page enumeration and refreshes the ref store
@@ -273,18 +284,39 @@ func fingerprintOf(e elementInfo) string {
 // liveFingerprint evaluates the page and returns the identity string of the
 // element currently matching selector ("" when the selector matches nothing).
 func liveFingerprint(page *rod.Page, selector string) (string, error) {
-	res, err := page.Eval(liveElementJS, selector)
-	if err != nil {
-		return "", err
-	}
-	if res == nil || res.Value.Val() == nil {
-		return "", nil // selector matches nothing
-	}
-	var id elementIdentity
-	if err := json.Unmarshal([]byte(res.Value.Str()), &id); err != nil {
+	id, _, err := liveFingerprintEx(page, selector)
+	if err != nil || id == nil {
 		return "", err
 	}
 	return fingerprintParts(id.Tag, id.Role, id.Text, id.Name, id.Href, id.Type), nil
+}
+
+// liveFingerprintEx returns the identity and same-identity index of the
+// element matching selector. id is nil when the selector matches nothing.
+func liveFingerprintEx(page *rod.Page, selector string) (*elementIdentity, int, error) {
+	res, err := page.Eval(liveElementJS, selector)
+	if err != nil {
+		return nil, 0, err
+	}
+	if res == nil || res.Value.Val() == nil {
+		return nil, 0, nil
+	}
+	var pair []json.RawMessage
+	if err := json.Unmarshal([]byte(res.Value.Str()), &pair); err != nil {
+		return nil, 0, err
+	}
+	if len(pair) != 2 {
+		return nil, 0, fmt.Errorf("unexpected live element payload")
+	}
+	var id elementIdentity
+	if err := json.Unmarshal(pair[0], &id); err != nil {
+		return nil, 0, err
+	}
+	var idx int
+	if err := json.Unmarshal(pair[1], &idx); err != nil {
+		return nil, 0, err
+	}
+	return &id, idx, nil
 }
 
 // lookupRefInStore returns the element recorded at ref in the page's ref
@@ -400,6 +432,28 @@ func (s *Server) candidatesFor(page *rod.Page, failedSelector string) []elementC
 		return nil
 	}
 	return findCandidates(elems, failedSelector, 5)
+}
+
+// findByFingerprint enumerates the page and returns the selector of the
+// fpIndex-th element whose fingerprint matches want. Repeated elements with
+// identical fingerprints (e.g. identically-labelled buttons) are
+// disambiguated by fpIndex in document order.
+func (s *Server) findByFingerprint(page *rod.Page, want string, fpIndex int) (string, bool) {
+	elems, err := s.enumerateElements(page)
+	if err != nil {
+		return "", false
+	}
+	n := 0
+	for _, e := range elems {
+		if fingerprintOf(e) != want {
+			continue
+		}
+		if n == fpIndex {
+			return e.Selector, true
+		}
+		n++
+	}
+	return "", false
 }
 
 // handleElements lists the interactive elements of the active page.

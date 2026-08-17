@@ -60,10 +60,8 @@ func (s *Server) handleNetworkCaptureStart(w http.ResponseWriter, r *http.Reques
 
 	s.networkDomain.acquirePages(pages)
 
-	s.recordAction("network_capture_start", map[string]interface{}{
-		"tab": req.Tab, "output": req.Output,
-		"include": req.Include, "format": req.Format,
-	})
+	// Capture control is not recorded: replays manage their own network
+	// state via the recorded HAR.
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -93,8 +91,6 @@ func (s *Server) handleNetworkCaptureStop(w http.ResponseWriter, r *http.Request
 	if reqs == nil {
 		reqs = []*capturedRequest{}
 	}
-
-	s.recordAction("network_capture_stop", nil)
 
 	out, err := formatNetworkEntries(reqs, format)
 	if err != nil {
