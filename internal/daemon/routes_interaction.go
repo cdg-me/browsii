@@ -120,6 +120,25 @@ func (s *Server) findElement(page *rod.Page, selector string) (*rod.Element, *ap
 	return el, nil
 }
 
+// findClickableElement is findElement plus the disabled check. Clicking a
+// disabled element otherwise stalls until the wait budget expires with an
+// unhelpful timeout error; failing fast with the reason is actionable.
+func (s *Server) findClickableElement(page *rod.Page, selector string) (*rod.Element, *apiError) {
+	el, aerr := s.findElement(page, selector)
+	if aerr != nil {
+		return nil, aerr
+	}
+	res, err := el.Eval(`() => !!this.disabled`)
+	if err == nil && res != nil && res.Value.Bool() {
+		return nil, &apiError{
+			Status:  http.StatusConflict,
+			Message: "element is disabled: " + selector,
+			Hint:    "the page keeps it disabled until its requirements are met — check required fields, or wait for the page to enable it",
+		}
+	}
+	return el, nil
+}
+
 func (s *Server) handlePress(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Key        string `json:"key"`
@@ -204,7 +223,7 @@ func (s *Server) handleClick(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, aerr)
 		return
 	}
-	el, aerr := s.findElement(page, selector)
+	el, aerr := s.findClickableElement(page, selector)
 	if aerr != nil {
 		writeAPIError(w, aerr)
 		return

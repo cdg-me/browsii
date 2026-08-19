@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -35,8 +36,16 @@ failed).`,
 		Run: func(cmd *cobra.Command, args []string) {
 			var fields []map[string]any
 			if fillJSON != "" {
-				if err := json.Unmarshal([]byte(fillJSON), &fields); err != nil {
-					log.Fatalf("invalid --json payload: %v", err)
+				var asArr []map[string]any
+				var asObj struct {
+					Fields []map[string]any `json:"fields"`
+				}
+				if err := json.Unmarshal([]byte(fillJSON), &asArr); err == nil {
+					fields = asArr
+				} else if err := json.Unmarshal([]byte(fillJSON), &asObj); err == nil && len(asObj.Fields) > 0 {
+					fields = asObj.Fields
+				} else {
+					log.Fatalf("invalid --json payload: expected [{\"selector\":\"#x\",\"value\":\"…\"}] or {\"fields\":[…]}")
 				}
 			}
 			for _, f := range fillFieldSpecs {
@@ -118,9 +127,17 @@ for multi-selects.`,
 		Args: cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
 			payload := interactionTarget(args[0])
-			payload["value"] = args[1]
 			if selectMulti {
+				options := []string{}
+				for _, part := range strings.Split(args[1], ",") {
+					if p := strings.TrimSpace(part); p != "" {
+						options = append(options, p)
+					}
+				}
+				payload["value"] = options
 				payload["multiple"] = true
+			} else {
+				payload["value"] = args[1]
 			}
 			if selectNoEvid {
 				payload["noEvidence"] = true

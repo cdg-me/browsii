@@ -92,7 +92,13 @@ var elementsHelpersJS = `
 				if (t) return trunc(t.textContent, 80);
 			} catch (e) {}
 		}
-		if (el.labels && el.labels.length) return trunc(el.labels[0].textContent, 80);
+		if (el.labels && el.labels.length) {
+			// A label wrapping a select includes the option text; clone the
+			// label and drop form controls to get the human label only.
+			const clone = el.labels[0].cloneNode(true);
+			clone.querySelectorAll('select, option, input, textarea').forEach(n => n.remove());
+			return trunc(clone.textContent, 80);
+		}
 		if (tag === 'input' || tag === 'textarea') {
 			const ph = el.getAttribute('placeholder');
 			if (ph) return trunc(ph, 80);

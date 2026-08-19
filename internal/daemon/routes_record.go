@@ -367,9 +367,18 @@ func (s *Server) replayFill(page *rod.Page, ev RecordedEvent) error {
 		selector := f.Selector
 		if f.FP != nil {
 			synthetic := RecordedEvent{FP: f.FP, FPIndex: f.FPIndex}
-			resolved, herr := s.resolveRecordedTarget(page, synthetic, selector, nil, 0)
-			if herr != nil {
-				return fmt.Errorf("field %d: %s", i+1, herr.Error())
+			var resolved string
+			var herr error
+			deadline := time.Now().Add(replayActionWait)
+			for {
+				resolved, herr = s.resolveRecordedTarget(page, synthetic, selector, nil, 0)
+				if herr == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					return fmt.Errorf("field %d: %s", i+1, herr.Error())
+				}
+				time.Sleep(100 * time.Millisecond)
 			}
 			selector = resolved
 		}
@@ -393,6 +402,7 @@ func (s *Server) replayExpect(page *rod.Page, ev RecordedEvent) (bool, string) {
 		URLPattern:     paramString(ev.Params, "urlPattern"),
 		Selector:       paramString(ev.Params, "selector"),
 		Hidden:         paramBool(ev.Params, "hidden"),
+		Enabled:        paramBoolPtr(ev.Params, "enabled"),
 		Ref:            0,
 		Value:          paramString(ev.Params, "value"),
 		Request:        paramString(ev.Params, "request"),
@@ -431,6 +441,22 @@ func paramBool(p map[string]interface{}, key string) bool {
 	return v
 }
 
+// paramBoolPtr reads an optional tri-state boolean field.
+func paramBoolPtr(p map[string]interface{}, key string) *bool {
+	v, ok := p[key].(bool)
+	if !ok {
+		return nil
+	}
+	return &v
+}
+
+// replayActionWait bounds how long a replayed element action waits for its
+// target to appear. Replays run at instant speed, so elements that the
+// recorded session waited for via natural timing (SPA setTimeouts, lazy
+// renders) may not exist yet when the action fires; without this budget,
+// recordings self-destruct on their own timing.
+const replayActionWait = 5 * time.Second
+
 // replayAction executes one non-expect event. Element actions resolve their
 // selector through the recorded fingerprint: when the selector no longer
 // matches, the element is relocated by fingerprint and occurrence index, and
@@ -441,9 +467,18 @@ func (s *Server) replayAction(page *rod.Page, ev RecordedEvent, report *replayRe
 	switch ev.Action {
 	case "click", "hover", "type", "select", "check":
 		if selector != "" {
-			resolved, err := s.resolveRecordedTarget(page, ev, selector, report, step)
-			if err != nil {
-				return err
+			var resolved string
+			var err error
+			deadline := time.Now().Add(replayActionWait)
+			for {
+				resolved, err = s.resolveRecordedTarget(page, ev, selector, report, step)
+				if err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					return err
+				}
+				time.Sleep(100 * time.Millisecond)
 			}
 			selector = resolved
 		}

@@ -296,7 +296,13 @@ const selectOptionJS = `(sel, value, label, index, multiple) => {
 		return JSON.stringify({ok: false, error: 'not a select element: ' + sel,
 			hint: 'select targets <select> elements; for buttons use click'});
 	}
-	if (!multiple) el.selectedIndex = -1;
+	if (!multiple && !Array.isArray(value) && !Array.isArray(label) && !Array.isArray(index)) {
+		el.selectedIndex = -1;
+	} else {
+		// A list spec replaces the selection (Playwright selectOption
+		// semantics), so clear before applying.
+		el.selectedIndex = -1;
+	}
 	const opts = [...el.options];
 	const asList = (v) => Array.isArray(v) ? v.map(String) : [String(v)];
 	const want = (o) => {

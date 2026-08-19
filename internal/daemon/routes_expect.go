@@ -32,6 +32,7 @@ type expectRequest struct {
 	URLPattern     string `json:"urlPattern"`
 	Selector       string `json:"selector"`
 	Hidden         bool   `json:"hidden"`
+	Enabled        *bool  `json:"enabled"`
 	Ref            int    `json:"ref"`
 	Value          string `json:"value"`
 	Request        string `json:"request"`
@@ -202,6 +203,9 @@ func (s *Server) recordExpect(req *expectRequest, timeout time.Duration) {
 	if req.Hidden {
 		params["hidden"] = true
 	}
+	if req.Enabled != nil {
+		params["enabled"] = *req.Enabled
+	}
 	if req.NoConsoleError {
 		params["noConsoleErrors"] = true
 	}
@@ -272,23 +276,45 @@ func (s *Server) expectCondition(page *rod.Page, req *expectRequest, sinceSeq in
 		if aerr != nil {
 			return nil, aerr
 		}
-		wantVisible := !req.Hidden
-		return func() (bool, string) {
-			res, err := page.Eval(`(sel) => {
-				const el = document.querySelector(sel);
-				if (!el) return "missing";
-				const vis = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-				return vis ? "visible" : "hidden";
-			}`, selector)
-			if err != nil {
-				return false, ""
-			}
-			state := res.Value.Str()
-			if wantVisible {
-				return state == "visible", "element is " + state
-			}
-			return state == "hidden" || state == "missing", "element is " + state
-		}, nil
+		switch {
+		case req.Enabled != nil:
+			wantEnabled := *req.Enabled
+			return func() (bool, string) {
+				res, err := page.Eval(`(sel) => {
+					const el = document.querySelector(sel);
+					if (!el) return "missing";
+					if (el.disabled) return "disabled";
+					if (el.tagName === 'A' || el.tagName === 'AREA') return el.getAttribute('aria-disabled') === 'true' ? "disabled" : "enabled";
+					return "enabled";
+				}`, selector)
+				if err != nil {
+					return false, ""
+				}
+				state := res.Value.Str()
+				if wantEnabled {
+					return state == "enabled", "element is " + state
+				}
+				return state != "enabled", "element is " + state
+			}, nil
+		default:
+			wantVisible := !req.Hidden
+			return func() (bool, string) {
+				res, err := page.Eval(`(sel) => {
+					const el = document.querySelector(sel);
+					if (!el) return "missing";
+					const vis = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+					return vis ? "visible" : "hidden";
+				}`, selector)
+				if err != nil {
+					return false, ""
+				}
+				state := res.Value.Str()
+				if wantVisible {
+					return state == "visible", "element is " + state
+				}
+				return state == "hidden" || state == "missing", "element is " + state
+			}, nil
+		}
 
 	case req.Request != "":
 		spec := req.Request
@@ -326,6 +352,10 @@ func expectDescribe(req *expectRequest) string {
 		return fmt.Sprintf("url matches %s", req.URLPattern)
 	case req.Value != "":
 		return fmt.Sprintf("value = %q", req.Value)
+	case req.Enabled != nil && !*req.Enabled:
+		return "element disabled"
+	case req.Enabled != nil:
+		return "element enabled"
 	case req.Hidden:
 		return "element hidden"
 	case req.Selector != "" || req.Ref > 0:

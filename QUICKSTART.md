@@ -149,8 +149,9 @@ diffs, not just "timeout":
 browsii expect --text "Saved" --port 9222                       # text visible
 browsii expect --text-gone "Loading…" --port 9222               # text disappeared
 browsii expect --url-pattern "*/orders/*" --port 9222           # URL glob
-browsii expect --selector ".results" --port 9222                # element visible
-browsii expect --selector ".spinner" --hidden --port 9222       # element hidden/gone
+  browsii expect --selector ".results" --port 9222                # element visible
+  browsii expect --selector ".spinner" --hidden --port 9222       # element hidden/gone
+  browsii expect --selector "#buy" --enabled --port 9222          # element enabled (also --disabled)
 browsii expect --ref 3 --value "user@x.com" --port 9222         # input value equals
 browsii expect --request "POST */api/order*" --port 9222        # request fired
 browsii expect --no-console-errors --port 9222                  # no error-level console entries

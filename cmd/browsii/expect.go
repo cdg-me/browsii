@@ -17,6 +17,8 @@ var (
 	expectURLPat    string
 	expectSelector  string
 	expectHidden    bool
+	expectEnabled   bool
+	expectDisabled  bool
 	expectRef       int
 	expectValue     string
 	expectRequest   string
@@ -62,6 +64,12 @@ or the requests that fired instead of the expected one.`,
 			if expectHidden {
 				payload["hidden"] = true
 			}
+			if expectEnabled {
+				payload["enabled"] = true
+			}
+			if expectDisabled {
+				payload["enabled"] = false
+			}
 			if expectRef > 0 {
 				payload["ref"] = expectRef
 			}
@@ -97,7 +105,9 @@ or the requests that fired instead of the expected one.`,
 	expectCmd.Flags().StringVar(&expectText, "text", "", "Wait until this text is visible in the page body")
 	expectCmd.Flags().StringVar(&expectTextGone, "text-gone", "", "Wait until this text is no longer visible")
 	expectCmd.Flags().StringVar(&expectURLPat, "url-pattern", "", "Wait until location.href matches this glob (* wildcards)")
-	expectCmd.Flags().StringVar(&expectSelector, "selector", "", "Wait until this element is visible (or hidden with --hidden)")
+	expectCmd.Flags().StringVar(&expectSelector, "selector", "", "Wait until this element is visible (or hidden with --hidden, enabled/disabled with --enabled/--disabled)")
+	expectCmd.Flags().BoolVar(&expectEnabled, "enabled", false, "With --selector: wait until the element is enabled")
+	expectCmd.Flags().BoolVar(&expectDisabled, "disabled", false, "With --selector: wait until the element is disabled")
 	expectCmd.Flags().BoolVar(&expectHidden, "hidden", false, "With --selector: wait until the element is hidden or gone")
 	expectCmd.Flags().IntVar(&expectRef, "ref", 0, "Element ref from 'elements' (for --value, or visibility)")
 	expectCmd.Flags().StringVar(&expectValue, "value", "", "Wait until the element's value equals this (needs --ref or --selector)")
