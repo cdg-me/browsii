@@ -25,7 +25,7 @@ func setupElementServer() *httptest.Server {
 				<button id="save-btn">Save</button>
 				<button class="cta">Submit order</button>
 				<button class="cta" disabled>Submit payment</button>
-				<input type="text" id="email" name="email" placeholder="Email address">
+				<form id="order-form" name="order"><input type="text" id="email" name="email" placeholder="Email address"></form>
 				<input type="checkbox" id="tos">
 				<select id="color"><option>red</option><option>blue</option></select>
 				<div id="hidden-wrap" style="display:none"><button id="secret">Secret action</button></div>

@@ -18,7 +18,7 @@ func init() {
 			url := fmt.Sprintf("http://127.0.0.1:%d/shutdown", port)
 			client := &http.Client{Timeout: 2 * time.Second}
 
-			req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
 			if err != nil {
 				fmt.Printf("Error stopping daemon on port %d: %v\n", port, err)
 				return

@@ -387,10 +387,12 @@ func (s *Server) Start() error {
 	s.registerElementRoutes(mux)
 	s.registerDialogRoutes(mux)
 	s.registerExpectRoutes(mux)
+	s.registerFormRoutes(mux)
+	s.registerQueryRoutes(mux)
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),
-		Handler: recoverMiddleware(mux),
+		Handler: s.secureMiddleware(recoverMiddleware(mux)),
 	}
 
 	log.Printf("Daemon API listening on http://127.0.0.1:%d\n", s.port)

@@ -107,7 +107,7 @@ func ensureDaemon(daemonPort int, devMode string) bool {
 // shutdownDaemon sends a graceful shutdown request to the daemon.
 func shutdownDaemon(daemonPort int) {
 	url := fmt.Sprintf("http://127.0.0.1:%d/shutdown", daemonPort)
-	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, nil)
 	if err != nil {
 		return
 	}

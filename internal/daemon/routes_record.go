@@ -342,6 +342,48 @@ func (s *Server) replayActionSafely(page *rod.Page, ev RecordedEvent, report *re
 	return s.replayAction(page, ev, report, step)
 }
 
+// replayFill re-applies a recorded fill event, healing each field's
+// selector by its recorded fingerprint. One failing field fails the step.
+func (s *Server) replayFill(page *rod.Page, ev RecordedEvent) error {
+	raw, ok := ev.Params["fields"]
+	if !ok {
+		return fmt.Errorf("fill event has no fields")
+	}
+	enc, err := json.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	var fields []struct {
+		Ref      int              `json:"ref"`
+		Selector string           `json:"selector"`
+		Value    string           `json:"value"`
+		FP       *elementIdentity `json:"fp"`
+		FPIndex  int              `json:"fpIndex"`
+	}
+	if err := json.Unmarshal(enc, &fields); err != nil {
+		return err
+	}
+	for i, f := range fields {
+		selector := f.Selector
+		if f.FP != nil {
+			synthetic := RecordedEvent{FP: f.FP, FPIndex: f.FPIndex}
+			resolved, herr := s.resolveRecordedTarget(page, synthetic, selector, nil, 0)
+			if herr != nil {
+				return fmt.Errorf("field %d: %s", i+1, herr.Error())
+			}
+			selector = resolved
+		}
+		if selector == "" {
+			return fmt.Errorf("field %d: no selector or fingerprint", i+1)
+		}
+		res, err := page.Eval(setNativeValueJS, selector, f.Value)
+		if err != nil || res == nil || !res.Value.Bool() {
+			return fmt.Errorf("field %d: value could not be set", i+1)
+		}
+	}
+	return nil
+}
+
 // replayExpect runs a recorded expect event through the same wait loop the
 // /expect endpoint uses.
 func (s *Server) replayExpect(page *rod.Page, ev RecordedEvent) (bool, string) {
@@ -397,7 +439,7 @@ func (s *Server) replayAction(page *rod.Page, ev RecordedEvent, report *replayRe
 	selector := paramString(ev.Params, "selector")
 
 	switch ev.Action {
-	case "click", "hover", "type":
+	case "click", "hover", "type", "select", "check":
 		if selector != "" {
 			resolved, err := s.resolveRecordedTarget(page, ev, selector, report, step)
 			if err != nil {
@@ -434,6 +476,43 @@ func (s *Server) replayAction(page *rod.Page, ev RecordedEvent, report *replayRe
 		}
 		if err := el.Hover(); err != nil {
 			return err
+		}
+	case "fill":
+		return s.replayFill(page, ev)
+	case "select":
+		res, err := page.Eval(selectOptionJS, selector,
+			ev.Params["value"], ev.Params["label"], ev.Params["index"], paramBool(ev.Params, "multiple"))
+		if err != nil || res == nil || res.Value.Val() == nil {
+			return fmt.Errorf("select failed: %s", errString(err))
+		}
+		var out struct {
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		}
+		if jsonErr := json.Unmarshal([]byte(res.Value.Str()), &out); jsonErr != nil {
+			return fmt.Errorf("select failed: unexpected page result")
+		}
+		if !out.OK {
+			return fmt.Errorf("select failed: %s", out.Error)
+		}
+	case "check":
+		el, aerr := s.findElement(page, selector)
+		if aerr != nil {
+			return fmt.Errorf("%s", aerr.Message)
+		}
+		want := paramBool(ev.Params, "checked")
+		_, state, cerr := elementCheckState(el)
+		if cerr != nil {
+			return fmt.Errorf("not a checkbox or radio: %s", selector)
+		}
+		if state != want {
+			if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
+				return err
+			}
+			_, now, _ := elementCheckState(el)
+			if now != want {
+				return fmt.Errorf("click did not change state: %s", selector)
+			}
 		}
 	case "press":
 		ka := page.KeyActions()

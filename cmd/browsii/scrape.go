@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -23,14 +23,22 @@ func init() {
 
 			resp, err := client.SendCommand(port, "scrape", payload)
 			if err != nil {
-				log.Fatalf("Scrape failed: %v", err)
+				if body, ok := parseDaemonError(err); ok {
+					fmt.Fprintln(os.Stderr, body.Error)
+					if body.Hint != "" {
+						fmt.Fprintf(os.Stderr, "hint: %s\n", body.Hint)
+					}
+					os.Exit(1)
+				}
+				fmt.Fprintf(os.Stderr, "Scrape failed: %v\n", err)
+				os.Exit(1)
 			}
 
 			fmt.Println(string(resp))
 		},
 	}
 
-	scrapeCmd.Flags().StringVar(&scrapeFormat, "format", "", "Output format: html (default), text, markdown")
+	scrapeCmd.Flags().StringVar(&scrapeFormat, "format", "", "Output format: html (default), text, markdown, readable")
 
 	rootCmd.AddCommand(scrapeCmd)
 }

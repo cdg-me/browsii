@@ -90,6 +90,33 @@ func (s *Server) handleScrape(w http.ResponseWriter, r *http.Request) {
 		}`)
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprint(w, result.Str()) //nolint:errcheck
+	case "readable":
+		res, err := page.Eval(readableRunJS)
+		if err != nil {
+			http.Error(w, "readable failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		var article struct {
+			OK     bool   `json:"ok"`
+			Title  string `json:"title"`
+			Byline string `json:"byline"`
+			Text   string `json:"text"`
+		}
+		if jsonErr := json.Unmarshal([]byte(res.Value.Str()), &article); jsonErr != nil || !article.OK {
+			writeAPIError(w, &apiError{
+				Status:  http.StatusUnprocessableEntity,
+				Message: "page is not readerable",
+				Hint:    "no article-like main content found; use --format text or markdown for the full page",
+			})
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		out := article.Title + "\n"
+		if article.Byline != "" {
+			out += article.Byline + "\n"
+		}
+		out += "\n" + article.Text
+		fmt.Fprint(w, out) //nolint:errcheck
 	default: // html
 		html := page.MustHTML()
 		w.Header().Set("Content-Type", "text/html")

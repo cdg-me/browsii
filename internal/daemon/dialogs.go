@@ -165,7 +165,15 @@ func (s *Server) writeEvidence(w http.ResponseWriter, page *rod.Page, urlBefore 
 		return
 	}
 	time.Sleep(evidenceSettle)
+	ev := s.collectEvidence(page, urlBefore, sinceSeq)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(ev)
+}
 
+// collectEvidence gathers the receipt fields after the settle window has
+// elapsed. Callers embed the result in their own response payloads.
+func (s *Server) collectEvidence(page *rod.Page, urlBefore string, sinceSeq int64) map[string]interface{} {
 	ev := &actionEvidence{}
 	if href, err := s.pageURL(page); err == nil {
 		ev.URL = href
@@ -184,9 +192,12 @@ func (s *Server) writeEvidence(w http.ResponseWriter, page *rod.Page, urlBefore 
 	}
 	ev.ConsoleErrors = len(s.consoleErrorsSince(sinceSeq))
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(ev)
+	out := map[string]interface{}{}
+	b, err := json.Marshal(ev)
+	if err == nil {
+		_ = json.Unmarshal(b, &out)
+	}
+	return out
 }
 
 // pageURL returns the page's current URL via a single eval.

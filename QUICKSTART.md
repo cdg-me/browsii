@@ -54,6 +54,25 @@ browsii hover ".dropdown" --port 9222
 browsii scroll --down --pixels 500 --port 9222   # --up / --top / --bottom
 ```
 
+### Forms (fill / select / check)
+
+```sh
+# Fill several fields in one call; values work with framework inputs (React, Vue)
+browsii fill --field '{"selector":"#email","value":"user@example.com"}' \
+             --field '{"ref":2,"value":"Jane"}' --port 9222
+browsii fill --field '{"selector":"#email","value":"user@example.com"}' --submit --port 9222
+
+# Select an option by value or label
+browsii select "#size" "Large" --port 9222
+
+# Checkboxes and radios (real clicks; idempotent)
+browsii check "#tos" --port 9222
+browsii check "#tos" --off --port 9222
+```
+
+Failures are per field: other fields still apply, and failures list
+candidate elements with refs for an immediate retry.
+
 ### Element map (refs)
 
 `elements` lists every interactive element with a numbered ref — the preferred
@@ -175,7 +194,11 @@ browsii tab close --port 9222
 ### Content extraction
 
 ```sh
-browsii scrape --format markdown --port 9222     # html | text | markdown
+browsii scrape --format markdown --port 9222     # html | text | markdown | readable
+browsii scrape --format readable --port 9222     # article text only (nav/footer stripped)
+browsii find "regulatory" --port 9222            # grep page text: count + matching lines
+browsii find --regex '/Total: \$\d+/' --port 9222
+browsii element "#checkout" --port 9222          # one element's attrs/state/rect
 browsii get-links --pattern "github.com" --port 9222  # JSON array of hrefs
 browsii js "document.title" --port 9222          # bare expression, returns JSON
 browsii js "({url: location.href, h1: document.querySelector('h1')?.textContent})" --port 9222
@@ -185,6 +208,11 @@ browsii screenshot out.png --element "#chart" --port 9222
 browsii screenshot out.png --full-page --port 9222
 browsii pdf out.pdf --port 9222
 ```
+
+`readable` uses Mozilla's Readability (Firefox Reader View). It fails with
+a clear error on pages without article-like content — fall back to `text`.
+`find` searches page text and exits 1 on zero matches (grep convention);
+for interactive controls use `elements --filter`.
 
 ### Network & console capture
 
@@ -389,6 +417,19 @@ c.MouseMove(640, 400)
 c.MouseDrag(100, 100, 400, 300, 20)
 c.MouseRightClick(".item")
 c.MouseDoubleClick(".item")
+
+// Forms
+c.Fill([]client.FillField{
+    {Selector: "#email", Value: "user@example.com"},
+    {Ref: 2, Value: "Jane"},
+}, true)                                        // fields, submit
+selected, _ := c.Select("#size", "Large")       // value or label; → ["l"]
+state, _ := c.Check("#tos", true)               // → CheckResult{Was, Now}
+
+// Reading
+article, _ := c.Readable()                      // article text, clutter stripped
+hits, _ := c.Find("regulatory", "")             // or regex: c.Find("", '/Total: \$\d+/')
+detail, _ := c.ElementDetailOf("#checkout")     // attrs, form, rect, state
 
 // Element map (refs)
 list, _ := c.Elements(client.ElementOpts{Filter: "sign in"})

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,33 @@ func buildPlaywrightSpec(url, har string, events []RecordedEvent) string {
 			fmt.Fprintf(&b, "  await %s.hover();\n", specLocatorWithComment(&b, ev))
 		case "type":
 			fmt.Fprintf(&b, "  await %s.fill(%q);\n", specLocatorWithComment(&b, ev), paramString(ev.Params, "text"))
+		case "fill":
+			if raw, ok := ev.Params["fields"].([]interface{}); ok {
+				for _, rf := range raw {
+					m, _ := rf.(map[string]interface{})
+					if m == nil {
+						continue
+					}
+					sel, _ := m["selector"].(string)
+					val, _ := m["value"].(string)
+					fev := RecordedEvent{
+						Params: m,
+						FP:     fpFromMap(m),
+					}
+					if sel != "" {
+						fev.Params = map[string]interface{}{"selector": sel}
+					}
+					fmt.Fprintf(&b, "  await %s.fill(%q);\n", specLocatorWithComment(&b, fev), val)
+				}
+			}
+		case "select":
+			fmt.Fprintf(&b, "  await %s.selectOption(%q);\n", specLocatorWithComment(&b, ev), paramString(ev.Params, "value"))
+		case "check":
+			if paramBool(ev.Params, "checked") {
+				fmt.Fprintf(&b, "  await %s.check();\n", specLocatorWithComment(&b, ev))
+			} else {
+				fmt.Fprintf(&b, "  await %s.uncheck();\n", specLocatorWithComment(&b, ev))
+			}
 		case "press":
 			fmt.Fprintf(&b, "  await page.keyboard.press(%q);\n", paramString(ev.Params, "key"))
 		case "scroll":
@@ -152,6 +180,23 @@ func writeExpectSpec(b *strings.Builder, ev RecordedEvent) {
 	default:
 		fmt.Fprintf(b, "  // skipped expect: %v\n", ev.Params)
 	}
+}
+
+// fpFromMap extracts an embedded fingerprint from a recorded field map.
+func fpFromMap(m map[string]interface{}) *elementIdentity {
+	raw, ok := m["fp"]
+	if !ok {
+		return nil
+	}
+	enc, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var id elementIdentity
+	if json.Unmarshal(enc, &id) != nil {
+		return nil
+	}
+	return &id
 }
 
 // timeoutSuffix renders the options argument for assertions that take it as
