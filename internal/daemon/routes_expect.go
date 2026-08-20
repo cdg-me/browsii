@@ -227,13 +227,13 @@ func (s *Server) expectCondition(page *rod.Page, req *expectRequest, sinceSeq in
 	switch {
 	case req.Text != "":
 		return func() (bool, string) {
-			res, err := page.Eval(`(s) => document.body ? document.body.innerText.includes(s) : false`, req.Text)
+			res, err := page.Eval(pageTextIncludesJS, req.Text)
 			return err == nil && res.Value.Bool(), ""
 		}, nil
 
 	case req.TextGone != "":
 		return func() (bool, string) {
-			res, err := page.Eval(`(s) => document.body ? !document.body.innerText.includes(s) : true`, req.TextGone)
+			res, err := page.Eval(pageTextNotIncludesJS, req.TextGone)
 			return err == nil && res.Value.Bool(), ""
 		}, nil
 
@@ -257,8 +257,8 @@ func (s *Server) expectCondition(page *rod.Page, req *expectRequest, sinceSeq in
 			return nil, aerr
 		}
 		return func() (bool, string) {
-			res, err := page.Eval(`(sel) => {
-				const el = document.querySelector(sel);
+			res, err := page.Eval(`(sel) => {`+elementsHelpersJS+`
+				const el = resolveOne(sel);
 				return el ? (el.value !== undefined ? el.value : el.textContent) : null;
 			}`, selector)
 			if err != nil {
@@ -280,8 +280,8 @@ func (s *Server) expectCondition(page *rod.Page, req *expectRequest, sinceSeq in
 		case req.Enabled != nil:
 			wantEnabled := *req.Enabled
 			return func() (bool, string) {
-				res, err := page.Eval(`(sel) => {
-					const el = document.querySelector(sel);
+				res, err := page.Eval(`(sel) => {`+elementsHelpersJS+`
+					const el = resolveOne(sel);
 					if (!el) return "missing";
 					if (el.disabled) return "disabled";
 					if (el.tagName === 'A' || el.tagName === 'AREA') return el.getAttribute('aria-disabled') === 'true' ? "disabled" : "enabled";
@@ -299,8 +299,8 @@ func (s *Server) expectCondition(page *rod.Page, req *expectRequest, sinceSeq in
 		default:
 			wantVisible := !req.Hidden
 			return func() (bool, string) {
-				res, err := page.Eval(`(sel) => {
-					const el = document.querySelector(sel);
+				res, err := page.Eval(`(sel) => {`+elementsHelpersJS+`
+					const el = resolveOne(sel);
 					if (!el) return "missing";
 					const vis = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
 					return vis ? "visible" : "hidden";
@@ -517,3 +517,55 @@ func tokenSet(s string) map[string]bool {
 func (s *Server) registerExpectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/expect", s.handleExpect)
 }
+
+// pageTextIncludesJS checks whether text appears anywhere in the rendered
+// page, including open shadow roots and same-origin iframes. innerText
+// alone excludes shadow content, so expectations on shadow-rendered text
+// would never match.
+var pageTextIncludesJS = `(s) => {
+	` + elementsHelpersJS + `
+	function allText(root, parts) {
+		for (const el of root.querySelectorAll('*')) {
+			if (el.shadowRoot) allText(el.shadowRoot, parts);
+			else if (el.tagName === 'IFRAME') {
+				try { if (el.contentDocument) allText(el.contentDocument, parts); } catch (e) {}
+			}
+		}
+		if (root === document) {
+			if (document.body) parts.push(document.body.innerText);
+		} else if (root.body) {
+			// iframe document
+			parts.push(root.body.innerText);
+		} else {
+			// shadow root: no body; read the root's own rendered text
+			parts.push(root.textContent);
+		}
+	}
+	const parts = [];
+	allText(document, parts);
+	return parts.some(p => p.includes(s));
+}`
+
+var pageTextNotIncludesJS = `(s) => {
+	` + elementsHelpersJS + `
+	function allText(root, parts) {
+		for (const el of root.querySelectorAll('*')) {
+			if (el.shadowRoot) allText(el.shadowRoot, parts);
+			else if (el.tagName === 'IFRAME') {
+				try { if (el.contentDocument) allText(el.contentDocument, parts); } catch (e) {}
+			}
+		}
+		if (root === document) {
+			if (document.body) parts.push(document.body.innerText);
+		} else if (root.body) {
+			// iframe document
+			parts.push(root.body.innerText);
+		} else {
+			// shadow root: no body; read the root's own rendered text
+			parts.push(root.textContent);
+		}
+	}
+	const parts = [];
+	allText(document, parts);
+	return !parts.some(p => p.includes(s));
+}`

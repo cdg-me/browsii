@@ -48,20 +48,57 @@ type elementInfo struct {
 	Rect     *elementRect `json:"rect,omitempty"`
 }
 
-// elementsHelpersJS holds the field-extraction functions shared by the full
-// enumeration (elementsJS) and the single-element live check (liveElementJS).
-// Both scripts must compute identity fields identically — ref fingerprint
-// verification compares their outputs byte for byte.
+// elementsHelpersJS holds the field-extraction and piercing functions
+// shared by every element script. Scripts must compute identity fields
+// identically — ref fingerprint verification compares their outputs byte
+// for byte.
+//
+// Piercing selectors: elements inside open shadow roots or same-origin
+// iframes are addressed as "chain >>> inner", where chain is a >>>-
+// separated list of host/frame selectors from the main document inward.
+// resolveSelector walks that chain; plain selectors resolve as before.
 var elementsHelpersJS = `
 	function esc(s) {
 		return (window.CSS && CSS.escape) ? CSS.escape(s) : s.replace(/([^a-zA-Z0-9_-])/g, '\\$1');
 	}
-	function unique(sel) {
-		try { return document.querySelectorAll(sel).length === 1; } catch (e) { return false; }
+	function rootQuery(root, sel) {
+		try { return root.querySelectorAll(sel); } catch (e) { return []; }
+	}
+	function rootQueryUnique(root, sel) {
+		try { return root.querySelectorAll(sel).length === 1; } catch (e) { return false; }
 	}
 	function trunc(s, n) {
-		s = s.replace(/\s+/g, ' ').trim();
+		s = s.replace(/\\s+/g, ' ').trim();
 		return s.length > n ? s.slice(0, n) + '…' : s;
+	}
+	// splitChain splits a piercing selector into its >>>-separated parts.
+	function splitChain(sel) {
+		return sel.split('>>>').map(s => s.trim()).filter(s => s.length > 0);
+	}
+	// resolveSelector walks a piercing chain from document inward through
+	// open shadow roots (shadowRoot) and same-origin iframes (contentDocument).
+	// Returns the matching list from the innermost root, or [] when any hop
+	// fails.
+	function resolveSelector(sel) {
+		const parts = splitChain(sel);
+		let root = document;
+		for (let i = 0; i < parts.length - 1; i++) {
+			const hop = root.querySelectorAll(parts[i]);
+			if (hop.length !== 1) return [];
+			const node = hop[0];
+			if (node.shadowRoot) root = node.shadowRoot;
+			else if (node.contentDocument) root = node.contentDocument;
+			else return [];
+		}
+		return rootQuery(root, parts[parts.length - 1]);
+	}
+	// resolveOne returns the first match of a piercing selector, or null.
+	function resolveOne(sel) {
+		const m = resolveSelector(sel);
+		return m.length ? m[0] : null;
+	}
+	function unique(sel) {
+		return resolveSelector(sel).length === 1;
 	}
 	function roleOf(el, tag) {
 		const r = el.getAttribute('role');
@@ -88,7 +125,7 @@ var elementsHelpersJS = `
 		const lb = el.getAttribute('aria-labelledby');
 		if (lb) {
 			try {
-				const t = document.getElementById(lb);
+				const t = (el.getRootNode ? el.getRootNode() : document).getElementById(lb);
 				if (t) return trunc(t.textContent, 80);
 			} catch (e) {}
 		}
@@ -123,9 +160,11 @@ var elementsHelpersJS = `
 	}
 `
 
-// elementsJS enumerates interactive elements in the page's main frame and
-// returns them as a JSON string (so Go can unmarshal cleanly). Hidden
-// elements are included with visible=false; filtering happens daemon-side.
+// elementsJS enumerates interactive elements in the page's main frame,
+// descending into open shadow roots and same-origin iframes, and returns
+// them as a JSON string. Selectors for nested elements are piercing chains
+// (host >>> inner). Hidden elements are included with visible=false;
+// filtering happens daemon-side.
 // Built as a var (not const) because it interpolates other vars.
 var elementsJS = `() => {` + elementsHelpersJS + `
 	const SEL = [
@@ -135,14 +174,17 @@ var elementsJS = `() => {` + elementsHelpersJS + `
 	].join(',');
 	const SKIP = new Set(['script', 'style', 'template', 'noscript', 'svg']);
 
-	function selectorFor(el) {
+	// selectorForLocal builds the within-root selector for el, testing
+	// uniqueness against el's own root (its shadow host or document).
+	function selectorForLocal(el) {
+		const root = (el.getRootNode && el.getRootNode()) || document;
 		const tag = el.tagName.toLowerCase();
-		if (el.id && unique('#' + esc(el.id))) return '#' + esc(el.id);
+		if (el.id && rootQueryUnique(root, '#' + esc(el.id))) return '#' + esc(el.id);
 		const nm = el.getAttribute('name');
 		if (nm) {
 			const safe = nm.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 			const s = tag + '[name="' + safe + '"]';
-			if (unique(s)) return s;
+			if (rootQueryUnique(root, s)) return s;
 		}
 		const parts = [];
 		let node = el, depth = 0;
@@ -159,7 +201,7 @@ var elementsJS = `() => {` + elementsHelpersJS + `
 			}
 			parts.unshift(part);
 			const sel = parts.join(' > ');
-			if (depth > 0 && unique(sel)) return sel;
+			if (depth > 0 && rootQueryUnique(root, sel)) return sel;
 			node = parent;
 			depth++;
 		}
@@ -167,7 +209,7 @@ var elementsJS = `() => {` + elementsHelpersJS + `
 		// The walk exhausted its depth budget without proving uniqueness
 		// (repeated table/list structures produce identical pretty paths).
 		// Fall back to a fully positional path, unique by construction.
-		return unique(joined) ? joined : positionalPath(el);
+		return rootQueryUnique(root, joined) ? joined : positionalPath(el);
 	}
 	function positionalPath(el) {
 		const parts = [];
@@ -186,55 +228,93 @@ var elementsJS = `() => {` + elementsHelpersJS + `
 		return parts.join(' > ');
 	}
 
+	// chainPrefix computes the piercing chain from document to root as a
+	// "sel >>> " prefix ("" when root is the document).
+	function chainPrefix(root) {
+		if (root === document) return '';
+		const host = root.host || (root.defaultView && root.defaultView.frameElement);
+		if (!host) return '';
+		const hostSel = selectorForLocal(host);
+		const outer = chainPrefix((host.getRootNode && host.getRootNode()) || document);
+		return (outer ? outer + ' >>> ' : '') + hostSel + ' >>> ';
+	}
+
 	const out = [];
 	const seen = new Set();
-	for (const el of document.querySelectorAll(SEL)) {
-		if (seen.has(el)) continue;
-		seen.add(el);
-		const tag = el.tagName.toLowerCase();
-		if (SKIP.has(tag)) continue;
-		const style = window.getComputedStyle(el);
-		const visible = style.display !== 'none' && style.visibility !== 'hidden' &&
-			!!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
-		const r = el.getBoundingClientRect();
-		const info = identityOf(el, tag);
-		info.selector = selectorFor(el);
-		info.visible = visible;
-		info.disabled = !!el.disabled;
-		info.rect = visible ? {
-			x: Math.round(r.x), y: Math.round(r.y),
-			w: Math.round(r.width), h: Math.round(r.height)
-		} : null;
-		if (tag === 'input') {
-			const t = info.type;
-			if (t === 'checkbox' || t === 'radio') info.checked = !!el.checked;
-			else if (t !== 'password') info.value = trunc(el.value || '', 40);
+	function walkRoot(root) {
+		for (const el of rootQuery(root, SEL)) {
+			if (seen.has(el) || out.length >= ` + strconv.Itoa(jsMaxElements) + `) continue;
+			seen.add(el);
+			const tag = el.tagName.toLowerCase();
+			if (SKIP.has(tag)) continue;
+			const style = (root.defaultView || window).getComputedStyle(el);
+			const visible = style.display !== 'none' && style.visibility !== 'hidden' &&
+				!!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+			const r = el.getBoundingClientRect();
+			const info = identityOf(el, tag);
+			info.selector = chainPrefix(root) + selectorForLocal(el);
+			info.visible = visible;
+			info.disabled = !!el.disabled;
+			info.rect = visible ? {
+				x: Math.round(r.x), y: Math.round(r.y),
+				w: Math.round(r.width), h: Math.round(r.height)
+			} : null;
+			if (tag === 'input') {
+				const t = info.type;
+				if (t === 'checkbox' || t === 'radio') info.checked = !!el.checked;
+				else if (t !== 'password') info.value = trunc(el.value || '', 40);
+			}
+			if (tag === 'textarea') info.value = trunc(el.value || '', 40);
+			out.push(info);
 		}
-		if (tag === 'textarea') info.value = trunc(el.value || '', 40);
-		out.push(info);
-		if (out.length >= ` + strconv.Itoa(jsMaxElements) + `) break;
+		// Descend into open shadow roots and same-origin iframes.
+		for (const el of rootQuery(root, '*')) {
+			if (el.shadowRoot) walkRoot(el.shadowRoot);
+			else if (el.tagName === 'IFRAME') {
+				try { if (el.contentDocument) walkRoot(el.contentDocument); } catch (e) {}
+			}
+			if (out.length >= ` + strconv.Itoa(jsMaxElements) + `) return;
+		}
 	}
+	walkRoot(document);
 	out.forEach((info, i) => { info.ref = i + 1; });
 	return JSON.stringify(out);
 }`
 
+// withResolve wraps a selector-taking script body so resolveOne is defined.
+// body receives the sel argument and may use resolveOne(sel).
+func withResolve(body string) string {
+	return `(sel) => {` + elementsHelpersJS + body + `}`
+}
+
 // liveElementJS returns [identity, index] for the element currently matching
-// the selector, or null when it matches nothing. Index is the element's
-// position among all elements with the same identity (0 when unique) —
-// needed to disambiguate repeated elements such as identically-labelled
-// buttons in a product list.
+// the (possibly piercing) selector, or null when it matches nothing. Index
+// is the element's position among all elements with the same identity (0
+// when unique) — needed to disambiguate repeated elements such as
+// identically-labelled buttons in a product list. The ordinal walk covers
+// shadow roots and same-origin iframes, matching the enumeration order.
 var liveElementJS = `(sel) => {` + elementsHelpersJS + `
-	const el = document.querySelector(sel);
+	const el = resolveOne(sel);
 	if (!el) return null;
 	const tag = el.tagName.toLowerCase();
 	const id = identityOf(el, tag);
 	const key = JSON.stringify(id);
 	let idx = 0;
-	for (const other of document.querySelectorAll('a, button, input, select, textarea, summary, label, [role], [tabindex], [onclick]')) {
-		if (other === el) break;
-		const otag = other.tagName.toLowerCase();
-		if (JSON.stringify(identityOf(other, otag)) === key) idx++;
-	}
+	const walk = (root) => {
+		for (const other of rootQuery(root, 'a, button, input, select, textarea, summary, label, [role], [tabindex], [onclick]')) {
+			if (other === el) return true;
+			const otag = other.tagName.toLowerCase();
+			if (JSON.stringify(identityOf(other, otag)) === key) idx++;
+		}
+		for (const node of rootQuery(root, '*')) {
+			if (node.shadowRoot) { if (walk(node.shadowRoot)) return true; }
+			else if (node.tagName === 'IFRAME') {
+				try { if (node.contentDocument && walk(node.contentDocument)) return true; } catch (e) {}
+			}
+		}
+		return false;
+	};
+	walk(document);
 	return JSON.stringify([id, idx]);
 }`
 

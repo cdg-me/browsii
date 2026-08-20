@@ -103,9 +103,10 @@ func (s *Server) elementNotFound(page *rod.Page, selector string) *apiError {
 const elementWait = 2 * time.Second
 
 // findElement locates sel and fails with an actionable error when missing or
-// hidden (hidden elements cannot receive trusted mouse events).
+// hidden (hidden elements cannot receive trusted mouse events). Piercing
+// selectors (">>>" chains) resolve through the same seam.
 func (s *Server) findElement(page *rod.Page, selector string) (*rod.Element, *apiError) {
-	el, err := page.Timeout(elementWait).Element(selector)
+	el, err := elementForSelector(page, selector, elementWait)
 	if err != nil || el == nil {
 		return nil, s.elementNotFound(page, selector)
 	}
@@ -278,8 +279,8 @@ func (s *Server) handleType(w http.ResponseWriter, r *http.Request) {
 	// re-renders and node detachments that happen when simulating backspaces/deletes.
 	// The selector is passed as an eval argument (not interpolated) so selectors
 	// containing quotes or backslashes cannot break out of the script.
-	_, _ = page.Eval(`(sel) => {
-		const el = document.querySelector(sel);
+	_, _ = page.Eval(`(sel) => {`+elementsHelpersJS+`
+		const el = resolveOne(sel);
 		if (el) { el.value = ''; el.focus(); }
 	}`, selector)
 

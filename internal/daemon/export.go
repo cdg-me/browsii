@@ -119,22 +119,35 @@ func buildPlaywrightSpec(url, har string, events []RecordedEvent) string {
 // specLocator renders the locator expression for an element action. With a
 // fingerprint it uses getByRole plus accessible name, disambiguating
 // repeated elements with .nth(fpIndex); the recorded CSS selector is kept
-// as a comment line above for debugging.
+// as a comment line above for debugging. Plain piercing chains (">>>")
+// become chained locator() calls — Playwright locators pierce open shadow
+// roots by default, so a chain maps naturally.
 func specLocator(ev RecordedEvent) string {
 	selector := paramString(ev.Params, "selector")
 	if ev.FP == nil {
-		return fmt.Sprintf("page.locator(%q)", selector)
+		return plainSpecLocator(selector)
 	}
 	name := ev.FP.Name
 	if name == "" {
 		name = ev.FP.Text
 	}
 	if name == "" {
-		return fmt.Sprintf("page.locator(%q)", selector)
+		return plainSpecLocator(selector)
 	}
 	expr := fmt.Sprintf("page.getByRole(%q, { name: %q })", ev.FP.Role, name)
 	if ev.FPIndex > 0 {
 		expr += fmt.Sprintf(".nth(%d)", ev.FPIndex-1)
+	}
+	return expr
+}
+
+// plainSpecLocator maps a recorded selector to a Playwright locator,
+// splitting ">>>" piercing chains into chained locator() calls.
+func plainSpecLocator(selector string) string {
+	parts := strings.Split(selector, ">>>")
+	expr := fmt.Sprintf("page.locator(%q)", strings.TrimSpace(parts[0]))
+	for _, p := range parts[1:] {
+		expr += fmt.Sprintf(".locator(%q)", strings.TrimSpace(p))
 	}
 	return expr
 }

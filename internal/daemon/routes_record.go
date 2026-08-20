@@ -499,8 +499,8 @@ func (s *Server) replayAction(page *rod.Page, ev RecordedEvent, report *replayRe
 		if _, aerr := s.findElement(page, selector); aerr != nil {
 			return fmt.Errorf("%s", aerr.Message)
 		}
-		_, _ = page.Eval(`(sel) => {
-			const el = document.querySelector(sel);
+		_, _ = page.Eval(`(sel) => {`+elementsHelpersJS+`
+			const el = resolveOne(sel);
 			if (el) { el.value = ''; el.focus(); }
 		}`, selector)
 		page.MustInsertText(paramString(ev.Params, "text"))
@@ -602,14 +602,17 @@ func (s *Server) replayAction(page *rod.Page, ev RecordedEvent, report *replayRe
 			}
 		}
 	case "mouse_rightclick":
-		el := page.MustElement(selector)
+		el, elErr := elementForSelector(page, selector, replayActionWait)
+		if elErr != nil || el == nil {
+			return fmt.Errorf("element not found: %s", selector)
+		}
 		el.MustScrollIntoView()
 		box := el.MustShape().Box()
 		page.Mouse.MustMoveTo(box.X+box.Width/2, box.Y+box.Height/2)
 		page.Mouse.MustClick("right")
 	case "mouse_doubleclick":
-		page.MustEval(`(sel) => {
-			document.querySelector(sel).dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true}));
+		page.MustEval(`(sel) => {`+elementsHelpersJS+`
+			resolveOne(sel).dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true}));
 		}`, selector)
 	case "upload":
 		var files []string
@@ -620,12 +623,20 @@ func (s *Server) replayAction(page *rod.Page, ev RecordedEvent, report *replayRe
 				}
 			}
 		}
-		page.MustElement(selector).MustSetFiles(files...)
+		upEl, upErr := elementForSelector(page, selector, replayActionWait)
+		if upErr != nil || upEl == nil {
+			return fmt.Errorf("element not found: %s", selector)
+		}
+		upEl.MustSetFiles(files...)
 	case "screenshot":
 		filename := paramString(ev.Params, "filename")
 		el := paramString(ev.Params, "element")
 		if el != "" {
-			data, err := page.MustElement(el).Screenshot(proto.PageCaptureScreenshotFormatPng, 0)
+			shotEl, shotErr := elementForSelector(page, el, replayActionWait)
+			if shotErr != nil || shotEl == nil {
+				return fmt.Errorf("element not found: %s", el)
+			}
+			data, err := shotEl.Screenshot(proto.PageCaptureScreenshotFormatPng, 0)
 			if err == nil {
 				_ = os.WriteFile(filename, data, 0644)
 			}

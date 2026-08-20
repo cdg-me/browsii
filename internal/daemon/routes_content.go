@@ -39,7 +39,28 @@ func (s *Server) handleScrape(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Format {
 	case "text":
-		result := page.MustEval(`() => document.body.innerText`)
+		result := page.MustEval(`() => {
+			` + elementsHelpersJS + `
+			// Flattened text: light DOM plus open shadow roots plus
+			// same-origin iframes — innerText alone excludes shadow content.
+			const parts = [];
+			(function allText(root) {
+				for (const el of root.querySelectorAll('*')) {
+					if (el.shadowRoot) allText(el.shadowRoot);
+					else if (el.tagName === 'IFRAME') {
+						try { if (el.contentDocument) allText(el.contentDocument); } catch (e) {}
+					}
+				}
+				if (root === document) {
+					if (document.body) parts.push(document.body.innerText);
+				} else if (root.body) {
+					parts.push(root.body.innerText);
+				} else {
+					parts.push(root.textContent);
+				}
+			})(document);
+			return parts.join('\n');
+		}`)
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprint(w, result.Str()) //nolint:errcheck
 	case "markdown":
@@ -140,7 +161,18 @@ func (s *Server) handleLinks(w http.ResponseWriter, r *http.Request) {
 
 	// Collect all href values via JS
 	result := page.MustEval(`() => {
-		return Array.from(document.querySelectorAll('a[href]')).map(a => a.href);
+		` + elementsHelpersJS + `
+		const hrefs = [];
+		(function allLinks(root) {
+			for (const el of root.querySelectorAll('a[href]')) hrefs.push(el.href);
+			for (const el of root.querySelectorAll('*')) {
+				if (el.shadowRoot) allLinks(el.shadowRoot);
+				else if (el.tagName === 'IFRAME') {
+					try { if (el.contentDocument) allLinks(el.contentDocument); } catch (e) {}
+				}
+			}
+		})(document);
+		return hrefs;
 	}`)
 
 	var links []string
@@ -188,7 +220,11 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 
 	if req.Element != "" {
 		// Element screenshot
-		el := page.MustElement(req.Element)
+		el, elErr := elementForSelector(page, req.Element, elementWait)
+		if elErr != nil || el == nil {
+			http.Error(w, "element not found: "+req.Element, http.StatusNotFound)
+			return
+		}
 		data, _ := el.Screenshot(proto.PageCaptureScreenshotFormatPng, 0)
 		if err := os.WriteFile(req.Filename, data, 0644); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

@@ -37,8 +37,8 @@ type fillFailure struct {
 // setNativeValueJS focuses the element, sets the value through the
 // property's native setter, and fires input and change events — the
 // sequence framework controlled inputs (React et al.) treat as user input.
-const setNativeValueJS = `(sel, value) => {
-	const el = document.querySelector(sel);
+var setNativeValueJS = `(sel, value) => {` + elementsHelpersJS + `
+	const el = resolveOne(sel);
 	if (!el) return false;
 	if (el.tagName === 'INPUT') {
 		const t = (el.getAttribute('type') || 'text').toLowerCase();
@@ -64,8 +64,8 @@ const setNativeValueJS = `(sel, value) => {
 }`
 
 // formSubmitJS clicks the submit control of the form containing sel.
-const formSubmitJS = `(sel) => {
-	const el = document.querySelector(sel);
+var formSubmitJS = `(sel) => {` + elementsHelpersJS + `
+	const el = resolveOne(sel);
 	if (!el || !el.form) return false;
 	const f = el.form;
 	const btn = f.querySelector('input[type=submit], button[type=submit], button:not([type])');
@@ -289,8 +289,8 @@ func firstSpec(req selectRequest) interface{} {
 // selectOptionJS resolves the option spec against the select's options and
 // applies the selection. Value matches exact option value, label matches
 // exact option text, index is zero-based. Multiple allows several.
-const selectOptionJS = `(sel, value, label, index, multiple) => {
-	const el = document.querySelector(sel);
+var selectOptionJS = `(sel, value, label, index, multiple) => {` + elementsHelpersJS + `
+	const el = resolveOne(sel);
 	if (!el) return JSON.stringify({ok: false, error: 'element not found: ' + sel});
 	if (el.tagName !== 'SELECT') {
 		return JSON.stringify({ok: false, error: 'not a select element: ' + sel,

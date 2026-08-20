@@ -154,7 +154,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	el := page.MustElement(req.Selector)
+	el, elErr := elementForSelector(page, req.Selector, elementWait)
+	if elErr != nil || el == nil {
+		http.Error(w, "element not found: "+req.Selector, http.StatusNotFound)
+		return
+	}
 	el.MustSetFiles(req.Files...)
 	s.recordAction("upload", map[string]interface{}{"selector": req.Selector, "files": req.Files})
 	w.WriteHeader(http.StatusOK)

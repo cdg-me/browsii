@@ -110,3 +110,17 @@ func TestGlobToSpecRegex(t *testing.T) {
 		}
 	}
 }
+
+func TestPlainSpecLocatorChains(t *testing.T) {
+	cases := map[string]string{
+		"#title":                  `page.locator("#title")`,
+		"#list >>> #title":        `page.locator("#list").locator("#title")`,
+		"#pane >>> form > button": `page.locator("#pane").locator("form > button")`,
+		"a >>> b >>> c":           `page.locator("a").locator("b").locator("c")`,
+	}
+	for in, want := range cases {
+		if got := plainSpecLocator(in); got != want {
+			t.Errorf("plainSpecLocator(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

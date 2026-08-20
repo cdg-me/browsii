@@ -87,7 +87,11 @@ func (s *Server) handleMouseRightclick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	el := page.MustElement(req.Selector)
+	el, elErr := elementForSelector(page, req.Selector, elementWait)
+	if elErr != nil || el == nil {
+		http.Error(w, "element not found: "+req.Selector, http.StatusNotFound)
+		return
+	}
 	el.MustScrollIntoView()
 	shape := el.MustShape()
 	box := shape.Box()
@@ -114,11 +118,15 @@ func (s *Server) handleMouseDoubleclick(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	el := page.MustElement(req.Selector)
+	el, elErr := elementForSelector(page, req.Selector, elementWait)
+	if elErr != nil || el == nil {
+		http.Error(w, "element not found: "+req.Selector, http.StatusNotFound)
+		return
+	}
 	el.MustScrollIntoView()
 	// Dispatch a real dblclick event via JS — two separate CDP clicks don't fire dblclick
-	page.MustEval(`(sel) => {
-		const el = document.querySelector(sel);
+	page.MustEval(`(sel) => {`+elementsHelpersJS+`
+		const el = resolveOne(sel);
 		el.dispatchEvent(new MouseEvent('dblclick', {bubbles: true, cancelable: true}));
 	}`, req.Selector)
 	s.recordAction("mouse_doubleclick", map[string]interface{}{"selector": req.Selector})

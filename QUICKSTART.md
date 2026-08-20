@@ -94,6 +94,11 @@ browsii elements --json --port 9222  # raw JSON with rects, values, checked stat
 Refs stay valid until the page changes. A stale ref fails fast with a hint to
 re-run `elements`.
 
+Shadow DOM and iframes are pierced automatically: elements inside open
+shadow roots and same-origin iframes appear in `elements` with chained
+selectors (`#host >>> #inner`), and every command accepts them — click, fill,
+type, expect, element, record/replay.
+
 ### Actionable errors
 
 When click/type/hover fail, the error tells you what to do next — similar
@@ -212,8 +217,10 @@ browsii pdf out.pdf --port 9222
 
 `readable` uses Mozilla's Readability (Firefox Reader View). It fails with
 a clear error on pages without article-like content — fall back to `text`.
-`find` searches page text and exits 1 on zero matches (grep convention);
-for interactive controls use `elements --filter`.
+`text` includes shadow-DOM and iframe content; `html` and `markdown` cover
+the light DOM only. `find` searches page text (shadow and iframe content
+included) and exits 1 on zero matches (grep convention); for interactive
+controls use `elements --filter`.
 
 ### Network & console capture
 

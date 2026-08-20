@@ -63,7 +63,29 @@ func (s *Server) handleFind(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := page.Eval(`(mode, query) => {
-		const lines = document.body.innerText.split('\n');
+		`+elementsHelpersJS+`
+		// Corpus: innerText of the light DOM plus textContent of open shadow
+	// roots and innerText of same-origin iframe bodies — innerText alone
+	// excludes shadow content.
+	const lines = (() => {
+		const parts = [];
+		(function allText(root) {
+			for (const el of root.querySelectorAll('*')) {
+				if (el.shadowRoot) allText(el.shadowRoot);
+				else if (el.tagName === 'IFRAME') {
+					try { if (el.contentDocument) allText(el.contentDocument); } catch (e) {}
+				}
+			}
+			if (root === document) {
+				if (document.body) parts.push(document.body.innerText);
+			} else if (root.body) {
+				parts.push(root.body.innerText);
+			} else {
+				parts.push(root.textContent);
+			}
+		})(document);
+		return parts.join('\n');
+	})().split('\n');
 		const out = [];
 		let count = 0;
 		let re = null;
@@ -179,7 +201,7 @@ func (s *Server) handleElement(w http.ResponseWriter, r *http.Request) {
 // elementDetailJS gathers one element's descriptor. Shares the identity and
 // selector helpers with the enumeration so fields match /elements output.
 var elementDetailJS = `(sel) => {` + elementsHelpersJS + `
-	const el = document.querySelector(sel);
+	const el = resolveOne(sel);
 	if (!el) return null;
 	const tag = el.tagName.toLowerCase();
 	const style = window.getComputedStyle(el);
