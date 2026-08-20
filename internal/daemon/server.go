@@ -161,6 +161,13 @@ type Server struct {
 	// navigation and replaced by every enumeration.
 	elementRefs map[proto.TargetTargetID][]elementInfo
 
+	// downloads tracks browser download lifecycles managed by
+	// startDownloadManagement, newest first, capped at downloadsCap.
+	// downloadWait holds the EachEvent subscription's wait func so it stays
+	// armed for the daemon's lifetime. Guarded by s.mu (downloads).
+	downloads    []downloadEntry
+	downloadWait func()
+
 	// Always-on event history for verification (expect/evidence).
 	//
 	// netRing and consoleRing are bounded ring buffers of recent network and
@@ -348,6 +355,10 @@ func (s *Server) Start() error {
 	s.browser = rod.New().ControlURL(u).MustConnect().DefaultDevice(devices.Clear)
 	log.Println("Browser launched and connected successfully.")
 
+	if err := s.startDownloadManagement(); err != nil {
+		log.Printf("Download management disabled: %v", err)
+	}
+
 	// In user-* modes, clear the webdriver flag on the initial page.
 	// CDP sets navigator.webdriver = true on connect regardless of launch flags;
 	// this override tells Chrome to stop reporting it.
@@ -389,6 +400,7 @@ func (s *Server) Start() error {
 	s.registerExpectRoutes(mux)
 	s.registerFormRoutes(mux)
 	s.registerQueryRoutes(mux)
+	s.registerDownloadRoutes(mux)
 
 	s.server = &http.Server{
 		Addr:    fmt.Sprintf("127.0.0.1:%d", s.port),

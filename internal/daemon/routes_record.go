@@ -403,10 +403,12 @@ func (s *Server) replayExpect(page *rod.Page, ev RecordedEvent) (bool, string) {
 		Selector:       paramString(ev.Params, "selector"),
 		Hidden:         paramBool(ev.Params, "hidden"),
 		Enabled:        paramBoolPtr(ev.Params, "enabled"),
+		Checked:        paramBoolPtr(ev.Params, "checked"),
 		Ref:            0,
 		Value:          paramString(ev.Params, "value"),
 		Request:        paramString(ev.Params, "request"),
 		NoConsoleError: paramBool(ev.Params, "noConsoleErrors"),
+		Count:          paramIntPtr(ev.Params, "count"),
 		TimeoutMs:      ev.TimeoutMs,
 	}
 	cond, aerr := s.expectCondition(page, &req, s.currentEventSeq())
@@ -439,6 +441,30 @@ func paramString(p map[string]interface{}, key string) string {
 func paramBool(p map[string]interface{}, key string) bool {
 	v, _ := p[key].(bool)
 	return v
+}
+
+// paramIntPtr reads an optional numeric field as a pointer (nil = absent).
+func paramIntPtr(p map[string]interface{}, key string) *int {
+	if v, ok := p[key].(float64); ok {
+		n := int(v)
+		return &n
+	}
+	if v, ok := p[key].(int); ok {
+		n := v
+		return &n
+	}
+	return nil
+}
+
+// paramInt reads a numeric field tolerant of float64 unmarshaling.
+func paramInt(p map[string]interface{}, key string) int {
+	if v, ok := p[key].(float64); ok {
+		return int(v)
+	}
+	if v, ok := p[key].(int); ok {
+		return v
+	}
+	return 0
 }
 
 // paramBoolPtr reads an optional tri-state boolean field.

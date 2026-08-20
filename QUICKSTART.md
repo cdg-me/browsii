@@ -157,6 +157,8 @@ browsii expect --url-pattern "*/orders/*" --port 9222           # URL glob
   browsii expect --selector ".results" --port 9222                # element visible
   browsii expect --selector ".spinner" --hidden --port 9222       # element hidden/gone
   browsii expect --selector "#buy" --enabled --port 9222          # element enabled (also --disabled)
+  browsii expect --selector "#tos" --checked --port 9222          # checkbox/radio state (also --unchecked)
+  browsii expect --selector ".results > li" --count 10 --port 9222 # exactly N elements match
 browsii expect --ref 3 --value "user@x.com" --port 9222         # input value equals
 browsii expect --request "POST */api/order*" --port 9222        # request fired
 browsii expect --no-console-errors --port 9222                  # no error-level console entries
@@ -221,6 +223,18 @@ a clear error on pages without article-like content — fall back to `text`.
 the light DOM only. `find` searches page text (shadow and iframe content
 included) and exits 1 on zero matches (grep convention); for interactive
 controls use `elements --filter`.
+
+### Downloads
+
+Downloads are managed: the daemon saves them to
+`~/.browsii/downloads/<port>/` and reports any download an action triggers
+in its receipt (`↓ report.csv (12B) → path`).
+
+```sh
+browsii click "#export" --port 9222     # receipt includes ↓ line
+browsii downloads --port 9222           # tracked downloads + paths
+browsii downloads clear --port 9222     # forget tracking (files kept)
+```
 
 ### Network & console capture
 

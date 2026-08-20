@@ -152,6 +152,13 @@ func printEvidenceFromBody(body []byte) {
 			Message  string `json:"message"`
 			Accepted bool   `json:"accepted"`
 		} `json:"dialogs"`
+		Downloads []struct {
+			Filename      string  `json:"filename"`
+			State         string  `json:"state"`
+			ReceivedBytes float64 `json:"receivedBytes"`
+			TotalBytes    float64 `json:"totalBytes"`
+			Path          string  `json:"path"`
+		} `json:"downloads"`
 	}
 	if err := json.Unmarshal(body, &ev); err != nil {
 		return
@@ -176,5 +183,12 @@ func printEvidenceFromBody(body []byte) {
 	}
 	if ev.ConsoleErrors > 0 {
 		fmt.Printf("⚠ %d console error(s) — inspect with: browsii console capture start\n", ev.ConsoleErrors)
+	}
+	for _, d := range ev.Downloads {
+		if d.State == "completed" {
+			fmt.Printf("↓ %s (%s) → %s\n", d.Filename, humanBytes(d.TotalBytes), d.Path)
+		} else {
+			fmt.Printf("↓ %s started\n", d.Filename)
+		}
 	}
 }

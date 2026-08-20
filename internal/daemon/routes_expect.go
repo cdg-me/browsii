@@ -33,6 +33,8 @@ type expectRequest struct {
 	Selector       string `json:"selector"`
 	Hidden         bool   `json:"hidden"`
 	Enabled        *bool  `json:"enabled"`
+	Checked        *bool  `json:"checked"`
+	Count          *int   `json:"count"` // nil = unset; 0 is a valid assertion (element gone)
 	Ref            int    `json:"ref"`
 	Value          string `json:"value"`
 	Request        string `json:"request"`
@@ -96,8 +98,11 @@ func (s *Server) handleExpect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hasTarget := req.Selector != "" || req.Ref > 0
+	// value pairs with the target; count and state modifiers replace the
+	// plain target condition rather than adding a second one
+	targetIsPrimary := hasTarget && req.Value == "" && req.Count == nil
 	primary := 0
-	for _, b := range []bool{req.Text != "", req.TextGone != "", req.URLPattern != "", req.Value != "", req.Request != "", hasTarget && req.Value == ""} {
+	for _, b := range []bool{req.Text != "", req.TextGone != "", req.URLPattern != "", req.Value != "", req.Request != "", req.Count != nil, targetIsPrimary} {
 		if b {
 			primary++
 		}
@@ -206,6 +211,12 @@ func (s *Server) recordExpect(req *expectRequest, timeout time.Duration) {
 	if req.Enabled != nil {
 		params["enabled"] = *req.Enabled
 	}
+	if req.Checked != nil {
+		params["checked"] = *req.Checked
+	}
+	if req.Count != nil {
+		params["count"] = req.Count
+	}
 	if req.NoConsoleError {
 		params["noConsoleErrors"] = true
 	}
@@ -277,6 +288,38 @@ func (s *Server) expectCondition(page *rod.Page, req *expectRequest, sinceSeq in
 			return nil, aerr
 		}
 		switch {
+		case req.Checked != nil:
+			wantChecked := *req.Checked
+			return func() (bool, string) {
+				res, err := page.Eval(`(sel) => {`+elementsHelpersJS+`
+					const el = resolveOne(sel);
+					if (!el) return "missing";
+					if (el.tagName !== 'INPUT') return "not-checkable";
+					const t = (el.getAttribute('type') || '').toLowerCase();
+					if (t !== 'checkbox' && t !== 'radio') return "not-checkable";
+					return el.checked ? "checked" : "unchecked";
+				}`, selector)
+				if err != nil {
+					return false, ""
+				}
+				state := res.Value.Str()
+				if state == "not-checkable" {
+					return false, "element is not a checkbox or radio: " + selector
+				}
+				return state == "checked" == wantChecked, "element is " + state
+			}, nil
+		case req.Count != nil:
+			want := *req.Count
+			return func() (bool, string) {
+				res, err := page.Eval(`(sel) => {`+elementsHelpersJS+`
+					return resolveSelector(sel).length;
+				}`, selector)
+				if err != nil {
+					return false, ""
+				}
+				n := int(res.Value.Int())
+				return n == want, fmt.Sprintf("selector matches %d element(s), want %d", n, want)
+			}, nil
 		case req.Enabled != nil:
 			wantEnabled := *req.Enabled
 			return func() (bool, string) {
@@ -352,6 +395,12 @@ func expectDescribe(req *expectRequest) string {
 		return fmt.Sprintf("url matches %s", req.URLPattern)
 	case req.Value != "":
 		return fmt.Sprintf("value = %q", req.Value)
+	case req.Checked != nil && !*req.Checked:
+		return "element unchecked"
+	case req.Checked != nil:
+		return "element checked"
+	case req.Count != nil:
+		return fmt.Sprintf("selector matches %d element(s)", *req.Count)
 	case req.Enabled != nil && !*req.Enabled:
 		return "element disabled"
 	case req.Enabled != nil:

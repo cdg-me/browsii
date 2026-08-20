@@ -18,6 +18,9 @@ var (
 	expectSelector  string
 	expectHidden    bool
 	expectEnabled   bool
+	expectChecked   bool
+	expectUnchecked bool
+	expectCount     int // sentinel -1 = unset
 	expectDisabled  bool
 	expectRef       int
 	expectValue     string
@@ -70,6 +73,16 @@ or the requests that fired instead of the expected one.`,
 			if expectDisabled {
 				payload["enabled"] = false
 			}
+			if expectChecked {
+				payload["checked"] = true
+			}
+			if expectUnchecked {
+				payload["checked"] = false
+			}
+			if expectCount >= 0 {
+				payload["count"] = expectCount
+				payload["selector"] = expectSelector
+			}
 			if expectRef > 0 {
 				payload["ref"] = expectRef
 			}
@@ -107,6 +120,9 @@ or the requests that fired instead of the expected one.`,
 	expectCmd.Flags().StringVar(&expectURLPat, "url-pattern", "", "Wait until location.href matches this glob (* wildcards)")
 	expectCmd.Flags().StringVar(&expectSelector, "selector", "", "Wait until this element is visible (or hidden with --hidden, enabled/disabled with --enabled/--disabled)")
 	expectCmd.Flags().BoolVar(&expectEnabled, "enabled", false, "With --selector: wait until the element is enabled")
+	expectCmd.Flags().BoolVar(&expectChecked, "checked", false, "With --selector: wait until the checkbox/radio is checked")
+	expectCmd.Flags().BoolVar(&expectUnchecked, "unchecked", false, "With --selector: wait until the checkbox/radio is unchecked")
+	expectCmd.Flags().IntVar(&expectCount, "count", -1, "With --selector: wait until exactly N elements match (0 = none remain)")
 	expectCmd.Flags().BoolVar(&expectDisabled, "disabled", false, "With --selector: wait until the element is disabled")
 	expectCmd.Flags().BoolVar(&expectHidden, "hidden", false, "With --selector: wait until the element is hidden or gone")
 	expectCmd.Flags().IntVar(&expectRef, "ref", 0, "Element ref from 'elements' (for --value, or visibility)")

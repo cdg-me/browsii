@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 func (s *Server) registerNavigationRoutes(mux *http.ServeMux) {
@@ -99,6 +100,7 @@ func (s *Server) handleNavigate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sinceSeq := s.currentEventSeq()
+	startTS := float64(time.Now().UnixNano()) / 1e9
 	page := s.activePage()
 	if page == nil {
 		// Create a new page in the appropriate context
@@ -135,7 +137,7 @@ func (s *Server) handleNavigate(w http.ResponseWriter, r *http.Request) {
 	// Receipt: requests fired during load, console errors, and any
 	// beforeunload dialog that was auto-handled (dismissing one cancels
 	// the navigation, so the agent must see it).
-	s.writeEvidence(w, page, "", sinceSeq, req.NoEvidence)
+	s.writeEvidence(w, page, "", sinceSeq, startTS, req.NoEvidence)
 }
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {

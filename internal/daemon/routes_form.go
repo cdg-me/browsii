@@ -144,7 +144,7 @@ func (s *Server) handleFill(w http.ResponseWriter, r *http.Request) {
 		filled++
 	}
 
-	urlBefore, sinceSeq := s.actionAnchors(page)
+	urlBefore, sinceSeq, startTS := s.actionAnchors(page)
 
 	if len(failures) == 0 && (req.Submit || anySubmit(req.Fields)) {
 		for i, f := range req.Fields {
@@ -157,7 +157,7 @@ func (s *Server) handleFill(w http.ResponseWriter, r *http.Request) {
 
 	s.recordFill(req.Fields)
 
-	s.writeFormReceipt(w, page, urlBefore, sinceSeq, map[string]interface{}{
+	s.writeFormReceipt(w, page, urlBefore, sinceSeq, startTS, map[string]interface{}{
 		"filled":   filled,
 		"failures": failures,
 	}, req.NoEvidence)
@@ -204,14 +204,14 @@ func (s *Server) recordFill(fields []fillField) {
 
 // writeFormReceipt writes a form-action response with the evidence receipt
 // merged in.
-func (s *Server) writeFormReceipt(w http.ResponseWriter, page *rod.Page, urlBefore string, sinceSeq int64, body map[string]interface{}, noEvidence bool) {
+func (s *Server) writeFormReceipt(w http.ResponseWriter, page *rod.Page, urlBefore string, sinceSeq int64, startTS float64, body map[string]interface{}, noEvidence bool) {
 	if noEvidence {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(body)
 		return
 	}
-	ev := s.collectEvidence(page, urlBefore, sinceSeq)
+	ev := s.collectEvidence(page, urlBefore, sinceSeq, startTS)
 	for k, v := range body {
 		ev[k] = v
 	}
@@ -271,9 +271,9 @@ func (s *Server) handleSelect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	urlBefore, sinceSeq := s.actionAnchors(page)
+	urlBefore, sinceSeq, startTS := s.actionAnchors(page)
 	s.recordInteraction("select", map[string]interface{}{"selector": selector, "value": firstSpec(req)}, page, selector)
-	s.writeFormReceipt(w, page, urlBefore, sinceSeq, map[string]interface{}{"selected": out.Selected}, req.NoEvidence)
+	s.writeFormReceipt(w, page, urlBefore, sinceSeq, startTS, map[string]interface{}{"selected": out.Selected}, req.NoEvidence)
 }
 
 func firstSpec(req selectRequest) interface{} {
@@ -378,7 +378,7 @@ func (s *Server) handleCheck(w http.ResponseWriter, r *http.Request) {
 
 	was := state
 	if state != req.Checked {
-		urlBefore, sinceSeq := s.actionAnchors(page)
+		urlBefore, sinceSeq, startTS := s.actionAnchors(page)
 		if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
 			http.Error(w, "check failed: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -393,7 +393,7 @@ func (s *Server) handleCheck(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.recordInteraction("check", map[string]interface{}{"selector": selector, "checked": req.Checked, "kind": kind}, page, selector)
-		s.writeFormReceipt(w, page, urlBefore, sinceSeq, map[string]interface{}{"was": was, "now": now}, req.NoEvidence)
+		s.writeFormReceipt(w, page, urlBefore, sinceSeq, startTS, map[string]interface{}{"was": was, "now": now}, req.NoEvidence)
 		return
 	}
 

@@ -147,25 +147,26 @@ const evidenceSettle = 400 * time.Millisecond
 // actionEvidence is the receipt attached to click/press/navigate responses:
 // what the action actually caused, so agents can verify instead of trusting.
 type actionEvidence struct {
-	Navigated      bool          `json:"navigated,omitempty"`
-	URL            string        `json:"url,omitempty"`
-	Dialogs        []dialogEntry `json:"dialogs,omitempty"`
-	Requests       int           `json:"requests"`
-	RequestSamples []string      `json:"requestSamples,omitempty"`
-	ConsoleErrors  int           `json:"consoleErrors"`
+	Navigated      bool            `json:"navigated,omitempty"`
+	URL            string          `json:"url,omitempty"`
+	Dialogs        []dialogEntry   `json:"dialogs,omitempty"`
+	Requests       int             `json:"requests"`
+	RequestSamples []string        `json:"requestSamples,omitempty"`
+	ConsoleErrors  int             `json:"consoleErrors"`
+	Downloads      []downloadEntry `json:"downloads,omitempty"`
 }
 
 // writeEvidence collects and writes the post-action receipt. urlBefore is the
 // page URL before the action ("" when unknown — navigation detection is
 // skipped). sinceSeq anchors ring queries to the moment before the action.
 // When skip is true the settle window is omitted and a bare 200 is written.
-func (s *Server) writeEvidence(w http.ResponseWriter, page *rod.Page, urlBefore string, sinceSeq int64, skip bool) {
+func (s *Server) writeEvidence(w http.ResponseWriter, page *rod.Page, urlBefore string, sinceSeq int64, startTS float64, skip bool) {
 	if skip {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 	time.Sleep(evidenceSettle)
-	ev := s.collectEvidence(page, urlBefore, sinceSeq)
+	ev := s.collectEvidence(page, urlBefore, sinceSeq, startTS)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(ev)
@@ -173,7 +174,7 @@ func (s *Server) writeEvidence(w http.ResponseWriter, page *rod.Page, urlBefore 
 
 // collectEvidence gathers the receipt fields after the settle window has
 // elapsed. Callers embed the result in their own response payloads.
-func (s *Server) collectEvidence(page *rod.Page, urlBefore string, sinceSeq int64) map[string]interface{} {
+func (s *Server) collectEvidence(page *rod.Page, urlBefore string, sinceSeq int64, startTS float64) map[string]interface{} {
 	ev := &actionEvidence{}
 	if href, err := s.pageURL(page); err == nil {
 		ev.URL = href
@@ -191,6 +192,10 @@ func (s *Server) collectEvidence(page *rod.Page, urlBefore string, sinceSeq int6
 		ev.RequestSamples = append(ev.RequestSamples, formatNetEntry(e))
 	}
 	ev.ConsoleErrors = len(s.consoleErrorsSince(sinceSeq))
+	ev.Downloads = s.downloadsSince(startTS)
+	if ev.Downloads == nil {
+		ev.Downloads = []downloadEntry{}
+	}
 
 	out := map[string]interface{}{}
 	b, err := json.Marshal(ev)

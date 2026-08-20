@@ -155,7 +155,7 @@ func (s *Server) handlePress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	urlBefore, sinceSeq := s.actionAnchors(page)
+	urlBefore, sinceSeq, startTS := s.actionAnchors(page)
 
 	// Handle key combos like "Control+a" by using page.KeyActions()
 	keys := parseKeyCombo(req.Key)
@@ -167,7 +167,7 @@ func (s *Server) handlePress(w http.ResponseWriter, r *http.Request) {
 	s.recordAction("press", map[string]interface{}{"key": req.Key})
 
 	// Pressing Enter can submit forms (navigation) and trigger dialogs.
-	s.writeEvidence(w, page, urlBefore, sinceSeq, req.NoEvidence)
+	s.writeEvidence(w, page, urlBefore, sinceSeq, startTS, req.NoEvidence)
 }
 
 func (s *Server) handleHover(w http.ResponseWriter, r *http.Request) {
@@ -230,7 +230,7 @@ func (s *Server) handleClick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	urlBefore, sinceSeq := s.actionAnchors(page)
+	urlBefore, sinceSeq, startTS := s.actionAnchors(page)
 
 	if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
 		http.Error(w, "click failed: "+err.Error(), http.StatusInternalServerError)
@@ -239,14 +239,17 @@ func (s *Server) handleClick(w http.ResponseWriter, r *http.Request) {
 	s.recordInteraction("click", map[string]interface{}{"selector": selector}, page, selector)
 
 	// Receipt: what did the click actually cause?
-	s.writeEvidence(w, page, urlBefore, sinceSeq, req.NoEvidence)
+	s.writeEvidence(w, page, urlBefore, sinceSeq, startTS, req.NoEvidence)
 }
 
 // actionAnchors snapshots the pre-action state evidence is measured against.
-func (s *Server) actionAnchors(page *rod.Page) (urlBefore string, sinceSeq int64) {
+// The returned timestamp anchors download scoping to the moment before the
+// action.
+func (s *Server) actionAnchors(page *rod.Page) (urlBefore string, sinceSeq int64, startTS float64) {
 	urlBefore, _ = s.pageURL(page)
 	sinceSeq = s.currentEventSeq()
-	return urlBefore, sinceSeq
+	startTS = float64(time.Now().UnixNano()) / 1e9
+	return urlBefore, sinceSeq, startTS
 }
 
 func (s *Server) handleType(w http.ResponseWriter, r *http.Request) {
