@@ -9,9 +9,20 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
+
+// tabOverride is the process-wide tab override for SendCommand, set by the
+// CLI's global --tab flag. Negative means "use the daemon's active tab".
+var tabOverride = -1
+
+// SetTabOverride scopes subsequent SendCommand calls to the given
+// zero-based tab index. Pass a negative value to clear.
+func SetTabOverride(tab int) {
+	tabOverride = tab
+}
 
 // SendCommand sends a JSON payload to a specific endpoint on the daemon.
 func SendCommand(port int, endpoint string, payload interface{}) ([]byte, error) {
@@ -31,6 +42,9 @@ func SendCommand(port int, endpoint string, payload interface{}) ([]byte, error)
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if tabOverride >= 0 {
+		req.Header.Set("X-Browsii-Tab", strconv.Itoa(tabOverride))
+	}
 
 	client := &http.Client{Timeout: 30 * time.Second} // Allow time for network requests/waiting
 	resp, err := client.Do(req)

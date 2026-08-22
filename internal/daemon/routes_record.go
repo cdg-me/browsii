@@ -299,7 +299,10 @@ func (s *Server) handleRecordReplay(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		page := s.activePage()
+		page, pageErr := s.pageFromRequest(r)
+		if !writePageError(w, pageErr) {
+			return
+		}
 		if page == nil {
 			report.FailedStep = i + 1
 			report.Error = "no active page"
@@ -518,7 +521,7 @@ func (s *Server) replayAction(page *rod.Page, ev RecordedEvent, report *replayRe
 		if aerr != nil {
 			return fmt.Errorf("%s", aerr.Message)
 		}
-		if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		if err := s.clickElement(el); err != nil {
 			return err
 		}
 	case "type":
@@ -535,7 +538,7 @@ func (s *Server) replayAction(page *rod.Page, ev RecordedEvent, report *replayRe
 		if aerr != nil {
 			return fmt.Errorf("%s", aerr.Message)
 		}
-		if err := el.Hover(); err != nil {
+		if err := s.hoverElement(el); err != nil {
 			return err
 		}
 	case "fill":
@@ -567,7 +570,7 @@ func (s *Server) replayAction(page *rod.Page, ev RecordedEvent, report *replayRe
 			return fmt.Errorf("not a checkbox or radio: %s", selector)
 		}
 		if state != want {
-			if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
+			if err := s.clickElement(el); err != nil {
 				return err
 			}
 			_, now, _ := elementCheckState(el)

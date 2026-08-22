@@ -72,7 +72,10 @@ func (s *Server) handleTabList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTabClose(w http.ResponseWriter, r *http.Request) {
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages to close", http.StatusBadRequest)
 		return

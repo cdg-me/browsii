@@ -22,7 +22,10 @@ func (s *Server) handleMouseMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -49,7 +52,10 @@ func (s *Server) handleMouseDrag(w http.ResponseWriter, r *http.Request) {
 		req.Steps = 10
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -81,7 +87,10 @@ func (s *Server) handleMouseRightclick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -112,7 +121,10 @@ func (s *Server) handleMouseDoubleclick(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return

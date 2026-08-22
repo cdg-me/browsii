@@ -90,7 +90,10 @@ func (s *Server) handleExpect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 
 	timeout := expectDefaultTimeout
 	if req.TimeoutMs > 0 {

@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
 )
 
 func (s *Server) registerFormRoutes(mux *http.ServeMux) {
@@ -96,7 +95,10 @@ func (s *Server) handleFill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -189,8 +191,8 @@ func (s *Server) recordFill(fields []fillField) {
 	for _, f := range fields {
 		rf := recField{Ref: f.Ref, Selector: f.Selector, Value: f.Value}
 		if f.Selector != "" {
-			if page := s.activePage(); page != nil {
-				if id, idx, err := liveFingerprintEx(page, f.Selector); err == nil && id != nil {
+			if ap := s.activePage(); ap != nil {
+				if id, idx, err := liveFingerprintEx(ap, f.Selector); err == nil && id != nil {
 					fp := *id
 					rf.FP = &fp
 					rf.FPIndex = idx
@@ -239,7 +241,10 @@ func (s *Server) handleSelect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -349,7 +354,10 @@ func (s *Server) handleCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -379,7 +387,7 @@ func (s *Server) handleCheck(w http.ResponseWriter, r *http.Request) {
 	was := state
 	if state != req.Checked {
 		urlBefore, sinceSeq, startTS := s.actionAnchors(page)
-		if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
+		if err := s.clickElement(el); err != nil {
 			http.Error(w, "check failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

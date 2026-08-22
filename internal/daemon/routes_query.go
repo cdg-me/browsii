@@ -49,7 +49,10 @@ func (s *Server) handleFind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -167,7 +170,10 @@ func (s *Server) handleElement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return

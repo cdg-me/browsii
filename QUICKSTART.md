@@ -199,6 +199,16 @@ browsii tab switch 1 --port 9222      # zero-based index
 browsii tab close --port 9222
 ```
 
+Every command accepts `--tab N` (or `-t`) to operate on that tab without
+switching to it — two agents can drive different tabs of one daemon
+concurrently without fighting over the active tab:
+
+```sh
+browsii --tab 0 click "#buy" --port 9222
+browsii --tab 1 expect --text "Saved" --port 9222
+browsii --tab 2 tab close --port 9222   # close a background tab
+```
+
 ### Content extraction
 
 ```sh

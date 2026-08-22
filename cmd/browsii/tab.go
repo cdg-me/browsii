@@ -91,7 +91,11 @@ func init() {
 			if err != nil {
 				log.Fatalf("Failed to close tab: %v", err)
 			}
-			fmt.Println("Successfully closed active tab")
+			if tab >= 0 {
+				fmt.Printf("Successfully closed tab %d\n", tab)
+			} else {
+				fmt.Println("Successfully closed active tab")
+			}
 		},
 	}
 

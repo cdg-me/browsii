@@ -17,7 +17,10 @@ func (s *Server) registerNavigationRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -29,7 +32,10 @@ func (s *Server) handleReload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBack(w http.ResponseWriter, r *http.Request) {
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -41,7 +47,10 @@ func (s *Server) handleBack(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleForward(w http.ResponseWriter, r *http.Request) {
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -62,7 +71,10 @@ func (s *Server) handleScroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -101,7 +113,10 @@ func (s *Server) handleNavigate(w http.ResponseWriter, r *http.Request) {
 
 	sinceSeq := s.currentEventSeq()
 	startTS := float64(time.Now().UnixNano()) / 1e9
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		// Create a new page in the appropriate context
 		if s.activeCtx != "" && s.contexts != nil {
@@ -150,7 +165,10 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return

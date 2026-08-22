@@ -31,7 +31,10 @@ func (s *Server) handleScrape(w http.ResponseWriter, r *http.Request) {
 		req.Format = "html"
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages to scrape", http.StatusBadRequest)
 		return
@@ -153,7 +156,10 @@ func (s *Server) handleLinks(w http.ResponseWriter, r *http.Request) {
 	// Pattern is optional, ignore decode errors for GET-like usage
 	json.NewDecoder(r.Body).Decode(&req) //nolint:errcheck
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -212,7 +218,10 @@ func (s *Server) handleScreenshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -250,7 +259,10 @@ func (s *Server) handlePdf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -287,7 +299,10 @@ func (s *Server) handleJS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -330,7 +345,10 @@ func (s *Server) maybeReportDialogsAfterBody(w http.ResponseWriter, page *rod.Pa
 }
 
 func (s *Server) handleCookies(w http.ResponseWriter, r *http.Request) {
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return

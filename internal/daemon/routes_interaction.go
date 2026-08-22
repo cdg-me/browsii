@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/proto"
 )
 
 func (s *Server) registerInteractionRoutes(mux *http.ServeMux) {
@@ -149,7 +148,10 @@ func (s *Server) handlePress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -179,7 +181,10 @@ func (s *Server) handleHover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
@@ -195,7 +200,7 @@ func (s *Server) handleHover(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, aerr)
 		return
 	}
-	if err := el.Hover(); err != nil {
+	if err := s.hoverElement(el); err != nil {
 		http.Error(w, "hover failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -213,27 +218,40 @@ func (s *Server) handleClick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
 	}
 
-	selector, aerr := s.resolveElementTarget(page, req.Ref, req.Selector)
-	if aerr != nil {
-		writeAPIError(w, aerr)
-		return
-	}
-	el, aerr := s.findClickableElement(page, selector)
-	if aerr != nil {
-		writeAPIError(w, aerr)
+	selector, selErr := s.resolveElementTarget(page, req.Ref, req.Selector)
+	if selErr != nil {
+		writeAPIError(w, selErr)
 		return
 	}
 
 	urlBefore, sinceSeq, startTS := s.actionAnchors(page)
 
-	if err := el.Click(proto.InputMouseButtonLeft, 1); err != nil {
-		http.Error(w, "click failed: "+err.Error(), http.StatusInternalServerError)
+	// Concurrent element lookups + clicks on one page race inside rod's
+	// shared JS context (lost clicks); serialize the whole click path per
+	// page. Per-tab throughput barely matters; correctness does.
+	mu := bgMutexFor(page.TargetID)
+	mu.Lock()
+	el, aerr := s.findClickableElement(page, selector)
+	var clickErr error
+	if aerr == nil {
+		clickErr = s.clickElement(el)
+	}
+	mu.Unlock()
+	if aerr != nil {
+		writeAPIError(w, aerr)
+		return
+	}
+	if clickErr != nil {
+		http.Error(w, "click failed: "+clickErr.Error(), http.StatusInternalServerError)
 		return
 	}
 	s.recordInteraction("click", map[string]interface{}{"selector": selector}, page, selector)
@@ -262,7 +280,10 @@ func (s *Server) handleType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page := s.activePage()
+	page, pageErr := s.pageFromRequest(r)
+	if !writePageError(w, pageErr) {
+		return
+	}
 	if page == nil {
 		http.Error(w, "no active pages", http.StatusBadRequest)
 		return
